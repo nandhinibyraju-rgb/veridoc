@@ -46,6 +46,15 @@ export function AuthProvider({ children }) {
     return data;
   };
 
+  const loginWithGoogle = async (googleData) => {
+    const data = await authService.googleLogin(googleData);
+    localStorage.setItem('veridoc_token', data.token);
+    localStorage.setItem('veridoc_user', JSON.stringify(data.user));
+    setToken(data.token);
+    setUser(data.user);
+    return data;
+  };
+
   const [appMode, setAppModeState] = useState(() => {
     const saved = localStorage.getItem('veridoc_app_mode');
     if (saved === 'student' || saved === 'doctor') return saved;
@@ -92,6 +101,7 @@ export function AuthProvider({ children }) {
       loading,
       login,
       register,
+      loginWithGoogle,
       logout,
       updateUser,
       appMode,

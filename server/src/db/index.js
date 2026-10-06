@@ -47,7 +47,8 @@ function initDatabase() {
       preferred_specialties TEXT DEFAULT 'Cardiology, Nephrology, Endocrinology',
       default_mode TEXT DEFAULT 'doctor',
       history_retention TEXT DEFAULT 'forever',
-      theme TEXT DEFAULT 'light'
+      theme TEXT DEFAULT 'light',
+      google_id TEXT
     );
   `);
 
@@ -92,6 +93,16 @@ function initDatabase() {
       created_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      token TEXT NOT NULL,
+      code TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
   `);
 
   // --- Step C: Indexes ---
@@ -101,6 +112,8 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_live_updates_published ON live_updates(published_at DESC);
     CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id, is_read);
     CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
+    CREATE INDEX IF NOT EXISTS idx_password_resets_code ON password_resets(code);
   `);
 
   // --- Step D: Safe Migrations (for pre-existing databases) ---
@@ -114,7 +127,8 @@ function initDatabase() {
     { name: 'preferred_specialties', def: "TEXT DEFAULT 'Cardiology, Nephrology, Endocrinology'" },
     { name: 'default_mode', def: "TEXT DEFAULT 'doctor'" },
     { name: 'history_retention', def: "TEXT DEFAULT 'forever'" },
-    { name: 'theme', def: "TEXT DEFAULT 'light'" }
+    { name: 'theme', def: "TEXT DEFAULT 'light'" },
+    { name: 'google_id', def: "TEXT" }
   ];
   for (const col of userMigrations) {
     if (!existingUserCols.has(col.name)) {
