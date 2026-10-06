@@ -109,7 +109,20 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id, is_read);
     CREATE INDEX IF NOT EXISTS idx_live_updates_published ON live_updates(published_at DESC);
   `);
-
+// Ensure notifications table exists
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notifications (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    link_url TEXT,
+    is_read INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+`);
   // Seed initial live updates if table is empty
   const countUpdates = db.prepare('SELECT count(*) as count FROM live_updates').get();
   if (countUpdates.count === 0) {
