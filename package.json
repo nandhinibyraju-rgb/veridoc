@@ -6,7 +6,8 @@
     "start": "node server/src/index.js",
     "server": "npm run dev --prefix server",
     "client": "npm run dev --prefix client",
-    "build": "npm run build --prefix client",
+    "build": "npm --prefix client install && npm --prefix client run build && npm --prefix server install",
+    "postinstall": "npm --prefix client install && npm --prefix client run build && npm --prefix server install",
     "test:server": "node server/test-api.js"
   },
   "keywords": [

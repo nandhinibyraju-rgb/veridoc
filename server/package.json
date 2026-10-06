@@ -5,7 +5,9 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "nodemon src/index.js",
+    "build": "npm --prefix ../client install && npm --prefix ../client run build",
+    "postinstall": "npm --prefix ../client install && npm --prefix ../client run build"
   },
   "keywords": [],
   "author": "",

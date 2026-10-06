@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+// In production (same origin), default to '' so EventSource uses relative /api paths
+const API_URL = import.meta.env.VITE_API_URL && import.meta.env.VITE_API_URL !== 'http://localhost:5000'
+  ? import.meta.env.VITE_API_URL
+  : (import.meta.env.PROD ? '' : 'http://localhost:5000');
 
 export function useLiveStream() {
   const [isConnected, setIsConnected] = useState(false);
