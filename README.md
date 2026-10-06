@@ -95,12 +95,59 @@ Clinical resources like **UpToDate**, **DynaMed**, and **OpenEvidence** are powe
 
 ## 5. Technology Stack
 
-- **Frontend**: React 19, Vite, Tailwind CSS v4, React Router v7, Axios, Lucide React
-- **Backend**: Node.js, Express, Helmet, CORS, Express-Rate-Limit
-- **Database**: SQLite via `better-sqlite3` (file-based in `server/data/veridoc.db`)
+- **Frontend**: React 19, Vite, Tailwind CSS v4, Framer Motion, Three.js (WebGL 3D background animations), React Router v7, Axios, Lucide React, jsPDF
+- **Backend**: Node.js, Express, Helmet, CORS, Express-Rate-Limit, Server-Sent Events (SSE)
+- **Database**: SQLite via `better-sqlite3` (file-based in `server/data/veridoc.db`, WAL Mode)
 - **Authentication**: JWT (`jsonwebtoken`) + `bcryptjs` + Zod schema validation
-- **Data Source**: NCBI PubMed E-utilities (`esearch.fcgi`, `efetch.fcgi`, parsed with `fast-xml-parser`)
-- **AI Synthesis**: Google Gemini API (`@google/generative-ai` / `@google/genai`) with clinical fallback engine
+- **Data Source**: NCBI PubMed E-utilities (`esearch.fcgi`, `efetch.fcgi`, `esummary.fcgi`), OpenFDA API
+- **AI Synthesis**: Google Gemini API (`@google/generative-ai`) with clinical fallback engine
+
+---
+
+## 6. Architecture & Feature Highlights (Parts 1 to 8)
+
+### Part 1: Typography & Readability
+- Modern Google Fonts pairing: **Plus Jakarta Sans** (headings, weights 600/700/800) and **DM Sans** (body & UI, 400/500/600).
+- Answer text rendered in DM Sans at 17px with generous 1.75 line height for optimal clinical readability.
+
+### Part 2: Doctor Mode vs Student Mode
+- Segmented toggle in top navigation with instant mode transition and per-user preference saving.
+- **Doctor Mode**: High-efficiency Teal/Navy theme (`#0F766E`, `#22D3EE`). Terse answers, GRADE certainty badge, patient context support, and clinical pharmacology details.
+- **Student Mode**: Learning-oriented Indigo/Amber theme (`#4F46E5`, `#F59E0B`). Adds *"In simple words"*, interactive *"How it works (Mechanism)"* drawer, *"Key terms"* glossary chips, *"Remember this"* high-yield flashcard box, and a 3-question interactive practice quiz with explanations and scoring.
+
+### Part 3: Opening Animation, 3D WebGL Background, and 1-Click Login
+- 1.8-second ECG pulse logo draw-on splash animation on first load.
+- Interactive 3D WebGL particle constellation & rotating torus background (`Three.js`) with mouse parallax tracking.
+- Pre-filled 1-click demo login button for instant evaluator access (`demo@veridoc.com` / `Demo@1234`).
+
+### Part 4: Scroll Animations & Color Shifts
+- Scroll-driven progress bar in top navbar (`useScroll`).
+- Dynamic background transitions across landing sections (`#F8FAFC` to `#F0FDFA` in Doctor mode, `#FAF5FF` to `#FFFBEB` in Student mode).
+- Word-by-word `SplitTextReveal` and `ScrollReveal` animations on viewport entry.
+
+### Part 5: Clean Library Page Redesign
+- Header with single search bar and unified filter row: type tabs (`All`, `Papers`, `Books`, `Saved`), topic dropdown, year dropdown, and sort dropdown.
+- Responsive uniform card grid (1-col mobile, 2-col tablet, 3-col desktop).
+- Interactive slide-over drawer on card click showing full clinical abstract, primary PubMed link, and private editable notes stored in `localStorage`.
+- Pagination / *"Load more publications"* button.
+
+### Part 6: Short, Sweet Answers with Highlights
+- Zod-validated structured output with concise clinical limits:
+  - `oneLiner`: Maximum 25 words direct clinical bottom line.
+  - `keyPoints`: 2 to 4 compact tiles with icon, bold label, one-line explanation, and author-year citation links.
+  - `thingsToWatch`: Amber vigilance card for priority contraindications and monitoring parameters.
+  - Collapsed-by-default accordions: *"More Details (Efficacy, Trials & Subgroup Breakdown)"*, *"Study Limitations"*, and *"How this was generated"*.
+  - Fits within a single screen before scrolling.
+
+### Part 7: Live Updates & Notifications via Server-Sent Events (SSE)
+- Authenticated SSE stream at `GET /api/live/stream` with automated 25s heartbeat pings.
+- Live pulsing indicator (`LIVE` badge) on the Updates page.
+- Incoming trial alerts and safety bulletins slide in at the top with an animated `NEW` badge.
+- Interactive notification bell with real-time unread badge, popover feed, *"Mark as read"*, and *"Mark all as read"*.
+- Background polling of NCBI PubMed for new meta-analyses and FDA MedWatch bulletins cached in SQLite with duplicate prevention.
+
+### Part 8: Automated Verification & Test Suite
+- Comprehensive end-to-end verification script (`server/test-section8.js`) testing authentication, live updates, SSE broadcasts, notification unread tracking, and both Doctor & Student mode outputs.
 
 ---
 
