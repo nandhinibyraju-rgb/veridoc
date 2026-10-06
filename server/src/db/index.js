@@ -200,6 +200,20 @@ db.exec(`
     }
     console.log('[DB] Seeded initial live updates and safety alerts');
   }
+  // Ensure notifications table exists before using it
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notifications (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    link_url TEXT,
+    is_read INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+`);
 // Seed demo user: demo@veridoc.com / Demo@1234
   const existingDemo = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@veridoc.com');
   if (!existingDemo) {
