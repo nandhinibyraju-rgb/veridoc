@@ -1,748 +1,431 @@
-import React, { useState } from 'react';
-import { evidenceService } from '../services/api';
-import WarningBanner from '../components/WarningBanner';
-import EvidenceBadge from '../components/EvidenceBadge';
-import CitationChip from '../components/CitationChip';
-import LoadingSteps from '../components/LoadingSteps';
-import ReferenceModal from '../components/ReferenceModal';
+import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Search,
   Sparkles,
-  Copy,
-  Check,
-  Clock,
-  BookOpen,
-  AlertTriangle,
-  ExternalLink,
-  RotateCcw,
-  Send,
-  HelpCircle,
-  FileText,
-  AlertOctagon,
+  ChevronLeft,
   ChevronRight,
-  ShieldCheck,
-  User,
   SlidersHorizontal,
-  ChevronDown,
-  ChevronUp,
-  MinusCircle,
+  Stethoscope,
+  BookOpen,
+  Pill,
+  ArrowRight,
+  ShieldCheck,
   CheckCircle2
 } from 'lucide-react';
-
-const EXAMPLE_QUESTIONS = [
-  "In type 2 diabetics with CKD, do SGLT2 inhibitors reduce cardiovascular events vs placebo?",
-  "Does early dual antiplatelet therapy with aspirin and clopidogrel reduce recurrent stroke risk after minor ischemic stroke?",
-  "In patients with resistant hypertension, does spironolactone outperform other fourth-line antihypertensive agents?"
-];
+import { evidenceService } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import AnswerColumn from '../components/AnswerColumn';
+import ReferencesPanel from '../components/ReferencesPanel';
+import DockedSearchBar from '../components/DockedSearchBar';
+import LoadingSteps from '../components/LoadingSteps';
 
 export default function AskPage() {
-  const [question, setQuestion] = useState('');
-  const [showPatientContext, setShowPatientContext] = useState(false);
-  const [patientContext, setPatientContext] = useState({
-    age: '',
-    sex: '',
-    comorbidities: '',
-    medications: ''
-  });
+  const [searchParams] = useSearchParams();
+  const { studentMode, appMode } = useAuth();
+  const isStudent = studentMode || appMode === 'student';
+
+  // Thread of questions and answers: [ { id, question, mode, timestamp, data, references } ]
+  const [thread, setThread] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [error, setError] = useState(null);
-  const [evidenceData, setEvidenceData] = useState(null);
-  const [copied, setCopied] = useState(false);
-  const [selectedReference, setSelectedReference] = useState(null);
 
-  // Follow-up question state (Phase 3 stretch)
-  const [followupText, setFollowupText] = useState('');
-  const [followupLoading, setFollowupLoading] = useState(false);
-  const [followupResults, setFollowupResults] = useState([]);
+  // Layout states
+  const [isReferencesCollapsed, setIsReferencesCollapsed] = useState(false);
+  const [activeCitationId, setActiveCitationId] = useState(null);
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
+  const [mobileActiveTab, setMobileActiveTab] = useState('answer'); // 'answer' | 'references'
 
-  const hasPatientContext = Boolean(
-    patientContext.age.trim() ||
-    patientContext.sex.trim() ||
-    patientContext.comorbidities.trim() ||
-    patientContext.medications.trim()
-  );
+  // Current docked search mode & type
+  const [searchMode, setSearchMode] = useState('quick'); // quick, deep, literature, gaps
+  const [searchType, setSearchType] = useState('ai'); // ai, literature, drug
 
-  const handleAsk = async (queryText) => {
-    const q = queryText || question;
-    if (!q || q.trim().length < 5) return;
+  // Listen for "+ New Question" event from left/history drawer
+  useEffect(() => {
+    const handleNewQ = () => {
+      setThread([]);
+      setError(null);
+      setLoading(false);
+      setActiveQuestionIndex(0);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    window.addEventListener('veridoc-new-question', handleNewQ);
+    return () => window.removeEventListener('veridoc-new-question', handleNewQ);
+  }, []);
 
+  // Handle URL query parameters ?q= or ?id=
+  useEffect(() => {
+    const qParam = searchParams.get('q');
+    const idParam = searchParams.get('id');
+    if (idParam) {
+      loadHistorySession(idParam);
+    } else if (qParam && qParam.trim()) {
+      handleSearchSubmit(qParam.trim());
+    }
+  }, [searchParams]);
+
+  const loadHistorySession = async (sessionId) => {
     setLoading(true);
     setError(null);
-    setEvidenceData(null);
-    setFollowupResults([]);
-
     try {
-      const contextPayload = hasPatientContext ? patientContext : undefined;
-      const data = await evidenceService.ask(q.trim(), contextPayload);
-      setEvidenceData(data);
+      const item = await evidenceService.getHistoryItem(sessionId);
+      if (item) {
+        const threadItem = {
+          id: item.id,
+          question: item.question,
+          mode: 'QUICK',
+          timestamp: item.searchedAt || item.createdAt,
+          data: {
+            id: item.id,
+            question: item.question,
+            result: item.result || {},
+            references: item.references || [],
+            searchedAt: item.searchedAt
+          }
+        };
+        setThread([threadItem]);
+        setActiveQuestionIndex(0);
+      }
     } catch (err) {
-      console.error('Ask error:', err);
-      setError(
-        err.response?.data?.error ||
-        err.response?.data?.details ||
-        'Unable to complete evidence synthesis. Please check PubMed connectivity and try again.'
-      );
+      console.error('Failed to load session:', err);
+      setError('Unable to load past clinical inquiry record.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleExampleClick = (ex) => {
-    setQuestion(ex);
-    handleAsk(ex);
-  };
+  // Main search submit handler (Initial inquiry or Follow-up question in thread)
+  const handleSearchSubmit = async (questionText, options = {}) => {
+    if (!questionText || questionText.trim().length < 3) return;
 
-  const handleCopySummary = () => {
-    if (!evidenceData) return;
-    const { question: q, result, references, searchedAt, patientContext: ctx } = evidenceData;
+    setLoading(true);
+    setError(null);
+    setLoadingStep(0);
 
-    let text = `VERIDOC CLINICAL EVIDENCE SUMMARY\n`;
-    text += `Inquiry: ${q}\n`;
-    if (ctx && (ctx.age || ctx.sex || ctx.comorbidities || ctx.medications)) {
-      text += `Patient Profile: Age: ${ctx.age || 'N/A'}, Sex: ${ctx.sex || 'N/A'}, Comorbidities: ${ctx.comorbidities || 'N/A'}, Meds: ${ctx.medications || 'N/A'}\n`;
-    }
-    text += `Date: ${new Date(searchedAt).toLocaleString()}\n\n`;
-    text += `BOTTOM LINE:\n${result.bottomLine}\n\n`;
-    text += `KEY FINDINGS:\n`;
-    result.findings.forEach((f, i) => {
-      text += `${i + 1}. [${f.evidenceStrength}] ${f.claim} (PMID: ${f.pmids.join(', ')})\n   Rationale: ${f.reason}\n`;
-      if (f.applicability) {
-        text += `   Applies to patient: ${f.applicability.status} — ${f.applicability.note}\n`;
-      }
-      text += `\n`;
-    });
-    if (result.conflicts) {
-      text += `WHERE SOURCES DISAGREE:\n${result.conflicts}\n\n`;
-    }
-    if (result.limitations) {
-      text += `LIMITATIONS:\n${result.limitations}\n\n`;
-    }
-    text += `REFERENCES (PubMed Verified):\n`;
-    references.forEach((r, i) => {
-      text += `[${i + 1}] PMID ${r.pmid}: ${r.title} (${r.journal}, ${r.publicationDate || r.year})\n`;
-    });
+    const stepInterval = setInterval(() => {
+      setLoadingStep((prev) => (prev < 4 ? prev + 1 : prev));
+    }, 1200);
 
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
-  };
-
-  const handleCitationClick = (pmid) => {
-    if (!evidenceData) return;
-    const found = evidenceData.references.find(r => String(r.pmid) === String(pmid));
-    if (found) {
-      setSelectedReference(found);
-    } else {
-      window.open(`https://pubmed.ncbi.nlm.nih.gov/${pmid}/`, '_blank');
-    }
-  };
-
-  const handleFollowupSubmit = async (e) => {
-    e.preventDefault();
-    if (!followupText.trim() || !evidenceData?.id) return;
-
-    setFollowupLoading(true);
     try {
-      const res = await evidenceService.followup(evidenceData.id, followupText.trim());
-      setFollowupResults(prev => [...prev, res]);
-      setFollowupText('');
+      const mode = options.mode || searchMode;
+      const type = options.searchType || searchType;
+      const filters = options.filters || {};
+      const patientContext = options.patientContext;
+      const studyFocus = options.studyFocus;
+
+      let data;
+      const rootItem = thread[0];
+      if (thread.length > 0 && rootItem?.data?.id && !rootItem.data.id.startsWith('q_')) {
+        try {
+          data = await evidenceService.followup(rootItem.data.id, questionText.trim());
+        } catch (fErr) {
+          console.warn('Follow-up call failed, using direct ask:', fErr);
+          data = await evidenceService.ask(questionText.trim(), patientContext, {
+            mode,
+            searchType: type,
+            studentMode: Boolean(isStudent),
+            studyFocus
+          });
+        }
+      } else {
+        data = await evidenceService.ask(questionText.trim(), patientContext, {
+          mode,
+          searchType: type,
+          studentMode: Boolean(isStudent),
+          studyFocus
+        });
+      }
+
+      const newThreadItem = {
+        id: data.id || `q_${Date.now()}`,
+        question: questionText.trim(),
+        mode: mode.toUpperCase(),
+        timestamp: new Date().toISOString(),
+        data: data
+      };
+
+      setThread((prev) => {
+        const next = [...prev, newThreadItem];
+        setActiveQuestionIndex(next.length - 1);
+        return next;
+      });
+
+      // Switch mobile tab to answer on new question
+      setMobileActiveTab('answer');
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to submit follow-up inquiry.');
+      console.error('Evidence query error:', err);
+      setError(
+        err.response?.data?.error ||
+        err.response?.data?.details ||
+        'Unable to synthesize peer-reviewed evidence. Please check PubMed availability and try again.'
+      );
     } finally {
-      setFollowupLoading(false);
+      clearInterval(stepInterval);
+      setLoading(false);
     }
   };
+
+  // Click on citation link: scroll to reference card in right panel & highlight
+  const handleCitationClick = (citationId) => {
+    setActiveCitationId(citationId);
+    if (isReferencesCollapsed) {
+      setIsReferencesCollapsed(false);
+    }
+    // On mobile, switch to references tab
+    if (window.innerWidth < 1024) {
+      setMobileActiveTab('references');
+    }
+
+    setTimeout(() => {
+      const element = document.getElementById(`ref-card-${citationId}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 150);
+
+    setTimeout(() => {
+      setActiveCitationId(null);
+    }, 3500);
+  };
+
+  const handleRecheck = async (item) => {
+    if (!item?.data?.id) return;
+    try {
+      setLoading(true);
+      const updated = await evidenceService.recheck(item.data.id);
+      setThread((prev) =>
+        prev.map((t) => (t.id === item.id ? { ...t, data: updated } : t))
+      );
+      alert('PubMed re-check complete! Fresh trials retrieved.');
+    } catch (err) {
+      alert('Re-check failed: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegenerate = (item) => {
+    handleSearchSubmit(item.question, { mode: searchMode, searchType });
+  };
+
+  const hasResults = thread.length > 0;
+  const currentItem = thread[activeQuestionIndex] || thread[thread.length - 1] || null;
+  const referencesCount = currentItem?.data?.references?.length || 0;
+
+  const tryAskingPills = isStudent
+    ? [
+        "what are the uses of paracetamol tablet",
+        "How do ACE inhibitors work",
+        "Metformin mechanism of action",
+        "Pathophysiology of heart failure"
+      ]
+    : [
+        "SGLT2 inhibitors in CKD stage 3b",
+        "DAPT duration post-DES in high bleeding risk",
+        "GLP-1 RA in heart failure with preserved ejection fraction",
+        "what are the uses of paracetamol tablet"
+      ];
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Search Input Section */}
-      <section className="bg-white rounded-2xl border border-slate-200/90 p-6 sm:p-8 shadow-xs">
-        <div className="max-w-3xl">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#0F766E] mb-2">
-            <Sparkles className="w-4 h-4" />
-            <span>PubMed-Verified Clinical Query</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-[#0F172A] tracking-tight mb-2">
-            Ask a Clinical Question
-          </h1>
-          <p className="text-sm text-slate-500 leading-relaxed mb-6">
-            Get an instant synthesis of recent RCTs, systematic reviews, and guidelines with GRADE-graded evidence strength and verifiable PubMed citations.
-          </p>
-        </div>
+    <div className="flex-1 flex flex-col min-h-[calc(100vh-8rem)]">
+      {/* View 1: Clean Home State (before any search is submitted) */}
+      {!hasResults && !loading && (
+        <motion.div
+          key={isStudent ? 'student-home' : 'doctor-home'}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.4 }}
+          className="flex-1 flex flex-col items-center justify-center max-w-4xl mx-auto px-4 py-8 sm:py-16 text-center space-y-8"
+        >
+          <div className="space-y-3">
+            <div
+              className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold transition-colors duration-400 ${
+                isStudent
+                  ? 'bg-indigo-50 border border-indigo-200/80 text-indigo-700'
+                  : 'bg-teal-50 border border-teal-200/80 text-[#0F766E]'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>{isStudent ? 'Medical Learning & Clinical Reasoning' : 'Evidence-Based Clinical Intelligence'}</span>
+            </div>
 
-        <form onSubmit={(e) => { e.preventDefault(); handleAsk(); }} className="space-y-4">
-          <div className="relative">
-            <textarea
-              rows={3}
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              placeholder="e.g. In type 2 diabetics with CKD, do SGLT2 inhibitors reduce cardiovascular events vs placebo?"
-              className="w-full p-4 pr-32 rounded-xl border border-slate-300 text-slate-900 placeholder-slate-400 text-base focus:outline-none focus:ring-2 focus:ring-[#0F766E] focus:border-transparent bg-slate-50/50 focus:bg-white resize-none transition shadow-2xs leading-relaxed"
+            <h1 className="text-3xl sm:text-5xl font-bold tracking-tight text-slate-900">
+              {isStudent ? (
+                <>
+                  Master clinical medicine, <br />
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#4F46E5] to-amber-500">
+                    with verified evidence.
+                  </span>
+                </>
+              ) : (
+                <>
+                  The latest clinical evidence, <br />
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#0F766E] to-cyan-500">
+                    graded and verified, in seconds.
+                  </span>
+                </>
+              )}
+            </h1>
+
+            <p className="text-sm sm:text-base text-slate-500 max-w-xl mx-auto leading-relaxed">
+              {isStudent
+                ? 'Understand drug mechanisms, trial pearls, and pathophysiological concepts in simple words.'
+                : 'Synthesize live peer-reviewed trials, systematic reviews, and FDA package inserts with zero hallucination guarantee.'}
+            </p>
+          </div>
+
+          {/* Centered Search Card on Home */}
+          <div className="w-full">
+            <DockedSearchBar
+              isDocked={false}
+              loading={loading}
+              currentMode={searchMode}
+              onModeChange={setSearchMode}
+              currentSearchType={searchType}
+              onSearchTypeChange={setSearchType}
+              onSubmit={handleSearchSubmit}
             />
-            <div className="absolute right-3 bottom-4 flex items-center gap-2">
-              <button
-                type="submit"
-                disabled={loading || !question.trim()}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm text-white bg-[#0F766E] hover:bg-[#0d655e] transition disabled:opacity-50 shadow-xs cursor-pointer"
-              >
-                <Search className="w-4 h-4" />
-                <span>{loading ? 'Synthesizing...' : 'Synthesize'}</span>
-              </button>
+          </div>
+
+          {/* Try Asking Chips */}
+          <div className="space-y-2">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              {isStudent ? 'Study topics to explore:' : 'Try asking:'}
+            </span>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {tryAskingPills.map((query, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleSearchSubmit(query)}
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium border shadow-2xs transition-all cursor-pointer ${
+                    isStudent
+                      ? 'bg-white hover:bg-indigo-50 hover:border-indigo-300 text-slate-600 hover:text-indigo-700 border-slate-200/80'
+                      : 'bg-white hover:bg-teal-50 hover:border-teal-300 text-slate-600 hover:text-[#0F766E] border-slate-200/80'
+                  }`}
+                >
+                  {query}
+                </button>
+              ))}
             </div>
           </div>
+        </motion.div>
+      )}
 
-          {/* Optional Patient Context Accordion */}
-          <div className="pt-1">
-            <button
-              type="button"
-              onClick={() => setShowPatientContext(prev => !prev)}
-              className="inline-flex items-center gap-2 text-xs font-semibold text-[#0F766E] hover:text-[#0d655e] bg-teal-50/70 hover:bg-teal-100/70 border border-teal-200/80 px-3 py-1.5 rounded-xl transition cursor-pointer"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Patient Context (Optional)</span>
-              {hasPatientContext && (
-                <span className="w-2 h-2 rounded-full bg-[#14B8A6] animate-pulse" title="Patient context active" />
-              )}
-              {showPatientContext ? (
-                <ChevronUp className="w-3.5 h-3.5 ml-0.5 text-slate-400" />
-              ) : (
-                <ChevronDown className="w-3.5 h-3.5 ml-0.5 text-slate-400" />
-              )}
-            </button>
-
-            {showPatientContext && (
-              <div className="mt-3 p-4.5 bg-slate-50/80 rounded-xl border border-slate-200 space-y-3.5 animate-in fade-in duration-150">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                    <User className="w-3.5 h-3.5 text-[#0F766E]" />
-                    <span>Patient Baseline Profile</span>
-                  </span>
-                  {hasPatientContext && (
-                    <button
-                      type="button"
-                      onClick={() => setPatientContext({ age: '', sex: '', comorbidities: '', medications: '' })}
-                      className="text-[11px] text-slate-500 hover:text-red-600 transition cursor-pointer underline"
-                    >
-                      Clear context
-                    </button>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                      Age
-                    </label>
-                    <input
-                      type="text"
-                      value={patientContext.age}
-                      onChange={(e) => setPatientContext(prev => ({ ...prev, age: e.target.value }))}
-                      placeholder="e.g. 68 or >65"
-                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0F766E]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                      Sex
-                    </label>
-                    <select
-                      value={patientContext.sex}
-                      onChange={(e) => setPatientContext(prev => ({ ...prev, sex: e.target.value }))}
-                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0F766E]"
-                    >
-                      <option value="">Unspecified</option>
-                      <option value="Female">Female</option>
-                      <option value="Male">Male</option>
-                      <option value="Other">Other</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                      Comorbidities
-                    </label>
-                    <input
-                      type="text"
-                      value={patientContext.comorbidities}
-                      onChange={(e) => setPatientContext(prev => ({ ...prev, comorbidities: e.target.value }))}
-                      placeholder="e.g. CKD stage 3b, hypertension"
-                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0F766E]"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                      Current Medications
-                    </label>
-                    <input
-                      type="text"
-                      value={patientContext.medications}
-                      onChange={(e) => setPatientContext(prev => ({ ...prev, medications: e.target.value }))}
-                      placeholder="e.g. Metformin, Lisinopril"
-                      className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#0F766E]"
-                    />
-                  </div>
-                </div>
-                <p className="text-[11px] text-slate-500 italic">
-                  Findings will evaluate abstract demographics and trial inclusion criteria to indicate whether evidence applies to this specific patient.
-                </p>
-              </div>
-            )}
-          </div>
-        </form>
-
-        {/* 3 Clickable Example Questions */}
-        <div className="mt-6 pt-5 border-t border-slate-100">
-          <div className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2.5">
-            Click to try clinical questions:
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-            {EXAMPLE_QUESTIONS.map((ex, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => handleExampleClick(ex)}
-                disabled={loading}
-                className="text-left p-3 rounded-xl border border-slate-200/90 bg-slate-50/60 hover:bg-teal-50/50 hover:border-teal-200 text-xs text-slate-700 hover:text-[#0F766E] transition duration-150 leading-relaxed group cursor-pointer"
-              >
-                <span className="font-semibold text-slate-400 mr-1.5 group-hover:text-[#0F766E]">
-                  #{idx + 1}
-                </span>
-                {ex}
-              </button>
-            ))}
+      {/* Loading Steps State */}
+      {loading && (
+        <div className="w-full max-w-4xl mx-auto py-12 px-4 space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+            <LoadingSteps currentStep={loadingStep} />
           </div>
         </div>
-      </section>
+      )}
 
-      {/* Loading Steps Animation */}
-      {loading && <LoadingSteps />}
-
-      {/* Error state */}
-      {error && !loading && (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-red-800 space-y-3">
-          <div className="flex items-center gap-2.5 font-semibold text-red-900 text-base">
-            <AlertTriangle className="w-5 h-5 text-red-600" />
-            <span>Clinical Evidence Retrieval Error</span>
-          </div>
-          <p className="text-sm leading-relaxed">{error}</p>
-          <button
-            onClick={() => handleAsk()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-red-200 rounded-xl text-xs font-semibold text-red-700 hover:bg-red-50 transition cursor-pointer"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Retry Search</span>
+      {/* Error Toast */}
+      {error && (
+        <div className="w-full max-w-4xl mx-auto mb-4 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="underline ml-3 font-semibold">
+            Dismiss
           </button>
         </div>
       )}
 
-      {/* Evidence Results View */}
-      {evidenceData && !loading && (
-        <div className="space-y-6 animate-in fade-in duration-200">
-          {/* Visible Clinical Warning Banner */}
-          <WarningBanner />
-
-          {/* Insufficient Evidence State Alert if triggered */}
-          {evidenceData.result.insufficientEvidence && (
-            <div className="bg-amber-50 border border-amber-300 rounded-2xl p-5 flex items-start gap-3.5 text-amber-900">
-              <AlertOctagon className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <h4 className="font-semibold text-sm">Insufficient Direct Published Evidence</h4>
-                <p className="text-xs sm:text-sm mt-1 leading-relaxed">
-                  The literature retrieved from PubMed does not currently meet rigorous randomized control or meta-analysis thresholds to establish definitive clinical guidance for this specific inquiry.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Patient Context Profile Bar (if context was provided) */}
-          {(evidenceData.patientContext?.age || evidenceData.patientContext?.sex || evidenceData.patientContext?.comorbidities || evidenceData.patientContext?.medications) && (
-            <div className="bg-teal-50/80 border border-teal-200/90 rounded-2xl p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-teal-100 flex items-center justify-center text-[#0F766E] shrink-0">
-                  <User className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#0F766E]">
-                    Tailored Patient Profile
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    Clinical findings evaluated against this patient's demographics &amp; comorbidities
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                {evidenceData.patientContext.age && (
-                  <span className="bg-white px-2.5 py-1 rounded-lg border border-teal-200/70 font-medium text-slate-800 shadow-2xs">
-                    <strong className="text-slate-500">Age:</strong> {evidenceData.patientContext.age}
-                  </span>
-                )}
-                {evidenceData.patientContext.sex && (
-                  <span className="bg-white px-2.5 py-1 rounded-lg border border-teal-200/70 font-medium text-slate-800 shadow-2xs">
-                    <strong className="text-slate-500">Sex:</strong> {evidenceData.patientContext.sex}
-                  </span>
-                )}
-                {evidenceData.patientContext.comorbidities && (
-                  <span className="bg-white px-2.5 py-1 rounded-lg border border-teal-200/70 font-medium text-slate-800 shadow-2xs">
-                    <strong className="text-slate-500">Dx:</strong> {evidenceData.patientContext.comorbidities}
-                  </span>
-                )}
-                {evidenceData.patientContext.medications && (
-                  <span className="bg-white px-2.5 py-1 rounded-lg border border-teal-200/70 font-medium text-slate-800 shadow-2xs">
-                    <strong className="text-slate-500">Rx:</strong> {evidenceData.patientContext.medications}
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Bottom Line Card */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 sm:p-8">
-            <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-teal-50 border border-teal-200 flex items-center justify-center text-[#0F766E]">
-                  <ShieldCheck className="w-4 h-4" />
-                </div>
-                <h2 className="text-sm font-bold uppercase tracking-wider text-[#0F766E]">
-                  Bottom Line Clinical Recommendation
-                </h2>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={handleCopySummary}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
-                  title="Copy full clinical summary to clipboard"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      <span className="text-emerald-700">Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5 text-slate-500" />
-                      <span>Copy Summary</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-
-            {/* Bottom line text in elegant Source Serif typography */}
-            <div className="mt-5 text-lg sm:text-[19px] text-[#0F172A] leading-relaxed font-serif-clinical">
-              {evidenceData.result.bottomLine}
-            </div>
-
-            {/* Metadata Footer: Searched on timestamp + Based on abstracts only */}
-            <div className="mt-6 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-y-2 text-xs text-slate-500 font-medium">
-              <div className="flex items-center gap-2">
-                <Clock className="w-3.5 h-3.5 text-slate-400" />
-                <span>
-                  Searched on{' '}
-                  <strong className="text-slate-700">
-                    {new Date(evidenceData.searchedAt).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    })}
-                  </strong>
-                </span>
-                <span className="text-slate-300">•</span>
-                <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-[11px] font-semibold">
-                  {evidenceData.articleCount || evidenceData.references.length} papers evaluated
-                </span>
-              </div>
-
-              <div className="text-slate-400 italic">
-                Note: Evidence synthesis is based on peer-reviewed abstracts only
-              </div>
-            </div>
-          </div>
-
-          {/* Graded Clinical Findings Section */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 sm:p-8 space-y-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-[#0F172A]">
-                  Graded Clinical Findings
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Specific therapeutic claims graded via GRADE criteria and linked to verified PubMed studies
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {evidenceData.result.findings && evidenceData.result.findings.length > 0 ? (
-                evidenceData.result.findings.map((f, idx) => (
-                  <div
-                    key={idx}
-                    className="p-5 rounded-xl border border-slate-200/80 bg-slate-50/40 hover:bg-slate-50/80 transition space-y-3"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <EvidenceBadge strength={f.evidenceStrength} />
-                      <div className="text-xs text-slate-400 font-medium">
-                        Finding #{idx + 1}
-                      </div>
-                    </div>
-
-                    <div className="text-base font-semibold text-[#0F172A] leading-relaxed">
-                      {f.claim}
-                    </div>
-
-                    {f.reason && (
-                      <p className="text-xs text-slate-600 leading-relaxed">
-                        <strong className="text-slate-800">Rationale:</strong> {f.reason}
-                      </p>
-                    )}
-
-                    {/* Verified Citation Chips */}
-                    {f.pmids && f.pmids.length > 0 && (
-                      <div className="pt-1 flex flex-wrap items-center gap-2">
-                        <span className="text-xs font-medium text-slate-500">Citations:</span>
-                        {f.pmids.map((pmid) => (
-                          <CitationChip
-                            key={pmid}
-                            pmid={pmid}
-                            onClick={handleCitationClick}
-                          />
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Applies to this patient? note */}
-                    {f.applicability && (
-                      <div className="pt-3 mt-1 border-t border-slate-200/70 flex flex-col sm:flex-row sm:items-start gap-2 bg-white/70 p-3 rounded-lg border border-slate-100">
-                        <span className="text-xs font-semibold text-slate-700 shrink-0 mt-0.5">
-                          Applies to this patient?
-                        </span>
-                        <div className="flex-1 space-y-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            {f.applicability.status === 'Applicable' && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-[#16A34A] border border-emerald-200">
-                                <CheckCircle2 className="w-3.5 h-3.5 stroke-[2.5]" />
-                                Applicable
-                              </span>
-                            )}
-                            {f.applicability.status === 'Partially' && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-[#CA8A04] border border-amber-200">
-                                <MinusCircle className="w-3.5 h-3.5 stroke-[2.5]" />
-                                Partially
-                              </span>
-                            )}
-                            {f.applicability.status === 'Not studied in this population' && (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-300">
-                                <HelpCircle className="w-3.5 h-3.5 text-slate-500" />
-                                Not studied in this population
-                              </span>
-                            )}
-                          </div>
-                          {f.applicability.note && (
-                            <p className="text-xs text-slate-600 leading-relaxed italic">
-                              {f.applicability.note}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-6 text-slate-400 text-sm">
-                  No discrete findings extracted from available abstracts.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Where Sources Disagree & Limitations Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Where Sources Disagree */}
-            <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 space-y-3">
-              <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
-                <div className="w-6 h-6 rounded-md bg-amber-50 text-amber-700 flex items-center justify-center">
-                  <HelpCircle className="w-3.5 h-3.5" />
-                </div>
-                <span>Where Sources Disagree &amp; Nuances</span>
-              </div>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                {evidenceData.result.conflicts || 'No direct cross-trial contradictions identified among the retrieved high-evidence cohorts.'}
-              </p>
-            </div>
-
-            {/* Limitations & Population Considerations */}
-            <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 space-y-3">
-              <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
-                <div className="w-6 h-6 rounded-md bg-slate-100 text-slate-700 flex items-center justify-center">
-                  <FileText className="w-3.5 h-3.5" />
-                </div>
-                <span>Trial Limitations &amp; Scope</span>
-              </div>
-              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
-                {evidenceData.result.limitations || 'Findings subject to trial inclusion criteria, exclusion of advanced end-stage renal disease, and follow-up duration.'}
-              </p>
-            </div>
-          </div>
-
-          {/* Guideline Consensus Card if present */}
-          {evidenceData.result.guidelineNotes && (
-            <div className="bg-white rounded-2xl border border-teal-100 shadow-sm p-6 space-y-2">
-              <div className="flex items-center gap-2 text-[#0F766E] font-bold text-sm">
-                <ShieldCheck className="w-4 h-4 text-[#0F766E]" />
-                <span>Guideline Consensus &amp; Practice Recommendations</span>
-              </div>
-              <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
-                {evidenceData.result.guidelineNotes}
-              </p>
-            </div>
-          )}
-
-          {/* Verified PubMed Reference List */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 sm:p-8 space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-bold text-[#0F172A]">
-                  Verified PubMed Reference Base
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Real PubMed data retrieved from NCBI E-utilities. Click any study to view the full abstract.
-                </p>
-              </div>
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-teal-50 text-[#0F766E] border border-teal-200">
-                {evidenceData.references.length} Verified Sources
-              </span>
-            </div>
-
-            <div className="divide-y divide-slate-100">
-              {evidenceData.references.map((ref, idx) => (
-                <div
-                  key={ref.pmid}
-                  className="py-4 first:pt-0 last:pb-0 flex items-start justify-between gap-4 group"
-                >
-                  <div className="space-y-1.5 flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-bold text-slate-400">
-                        [{idx + 1}]
-                      </span>
-                      <CitationChip
-                        pmid={ref.pmid}
-                        onClick={handleCitationClick}
-                        showVerifiedLabel={false}
-                      />
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
-                        {ref.studyType}
-                      </span>
-                      {ref.isOlderThan5Years && (
-                        <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200">
-                          Older evidence (&gt;5 yrs)
-                        </span>
-                      )}
-                      {ref.isRetracted && (
-                        <span className="text-[11px] font-bold px-2 py-0.5 rounded bg-red-100 text-red-800 border border-red-300">
-                          Retracted
-                        </span>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setSelectedReference(ref)}
-                      className="text-left font-semibold text-sm text-[#0F172A] hover:text-[#0F766E] transition leading-snug cursor-pointer block"
-                    >
-                      {ref.title}
-                    </button>
-
-                    <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-3 gap-y-1">
-                      <span>{ref.journal}</span>
-                      <span>•</span>
-                      <span>{ref.publicationDate || ref.year}</span>
-                    </div>
-                  </div>
-
-                  <a
-                    href={ref.pubmedUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Open on official PubMed website"
-                    className="p-2 text-slate-400 hover:text-[#0F766E] hover:bg-teal-50 rounded-lg transition-colors shrink-0"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Phase 3 Stretch: Follow-Up Questions on Result */}
-          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-6 sm:p-8 space-y-5">
-            <div>
-              <h3 className="text-base font-bold text-[#0F172A] flex items-center gap-2">
-                <HelpCircle className="w-4 h-4 text-[#0F766E]" />
-                <span>Ask a Follow-Up Question</span>
-              </h3>
-              <p className="text-xs text-slate-500 mt-1">
-                Deep dive into specific subgroup outcomes, renal endpoints, dosage, or drug safety profiles.
-              </p>
-            </div>
-
-            <form onSubmit={handleFollowupSubmit} className="flex gap-2">
-              <input
-                type="text"
-                value={followupText}
-                onChange={(e) => setFollowupText(e.target.value)}
-                placeholder="e.g. What were the specific eGFR slope findings?"
-                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F766E] bg-slate-50/50 focus:bg-white"
-              />
+      {/* View 2: PART 1 Results Workspace (Split View) */}
+      {hasResults && (
+        <div className="flex-1 flex flex-col min-h-0">
+          {/* Mobile Tab Switcher (< lg screens) */}
+          <div className="lg:hidden flex items-center justify-center mb-4 px-2">
+            <div className="bg-slate-100 p-1 rounded-full border border-slate-200 flex items-center w-full max-w-xs">
               <button
-                type="submit"
-                disabled={followupLoading || !followupText.trim()}
-                className="px-5 py-2.5 rounded-xl font-semibold text-xs text-white bg-[#0F766E] hover:bg-[#0d655e] transition disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                type="button"
+                onClick={() => setMobileActiveTab('answer')}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-full transition-all ${
+                  mobileActiveTab === 'answer'
+                    ? 'bg-[#22D3EE] text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
-                <Send className="w-3.5 h-3.5" />
-                <span>{followupLoading ? 'Querying...' : 'Ask Follow-up'}</span>
+                Answer Thread
               </button>
-            </form>
+              <button
+                type="button"
+                onClick={() => setMobileActiveTab('references')}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-full transition-all ${
+                  mobileActiveTab === 'references'
+                    ? 'bg-[#22D3EE] text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                References ({referencesCount})
+              </button>
+            </div>
+          </div>
 
-            {/* Follow-up answers list */}
-            {followupResults.length > 0 && (
-              <div className="space-y-4 pt-4 border-t border-slate-100">
-                {followupResults.map((fr, idx) => (
-                  <div key={idx} className="p-4 rounded-xl bg-teal-50/40 border border-teal-200/60 space-y-2">
-                    <div className="text-xs font-bold text-[#0F766E]">
-                      Q: {fr.followupQuestion}
-                    </div>
-                    <div className="text-sm text-slate-800 leading-relaxed font-serif-clinical">
-                      {fr.result?.bottomLine}
-                    </div>
-                    {fr.result?.findings?.length > 0 && (
-                      <div className="space-y-1.5 pt-1">
-                        {fr.result.findings.map((f, fi) => (
-                          <div key={fi} className="text-xs text-slate-700 flex items-start gap-2">
-                            <span className="font-semibold text-slate-900">•</span>
-                            <span>{f.claim}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
+          {/* Desktop Two-Column Split View Workspace */}
+          <div className="relative flex-1 flex flex-col lg:flex-row items-start gap-4 sm:gap-6 min-h-0">
+            {/* LEFT COLUMN (~60% when expanded, 100% when collapsed): Answer Thread */}
+            <div
+              className={`w-full transition-all duration-300 ease-in-out ${
+                isReferencesCollapsed ? 'lg:w-full' : 'lg:w-[60%]'
+              } ${mobileActiveTab === 'references' ? 'hidden lg:block' : 'block'}`}
+            >
+              <AnswerColumn
+                thread={thread}
+                onCitationClick={handleCitationClick}
+                onRecheck={handleRecheck}
+                onRegenerate={handleRegenerate}
+                activeCitationId={activeCitationId}
+              />
+            </div>
+
+            {/* Small Round "< >" Collapse Handle between Columns (Desktop) */}
+            <div className="hidden lg:flex items-center justify-center absolute top-12 z-20"
+                 style={{ left: isReferencesCollapsed ? 'calc(100% - 18px)' : 'calc(60% - 15px)' }}>
+              <button
+                type="button"
+                onClick={() => setIsReferencesCollapsed((prev) => !prev)}
+                className="w-7 h-7 rounded-full bg-white hover:bg-slate-50 border border-slate-300 shadow-md flex items-center justify-center text-slate-600 hover:text-[#0F766E] transition-all hover:scale-105 cursor-pointer"
+                title={isReferencesCollapsed ? 'Expand References Panel' : 'Collapse References Panel'}
+                aria-label="Toggle references panel"
+              >
+                {isReferencesCollapsed ? (
+                  <ChevronLeft className="w-4 h-4 stroke-[2.2]" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 stroke-[2.2]" />
+                )}
+              </button>
+            </div>
+
+            {/* RIGHT COLUMN (~40%): References Panel */}
+            {!isReferencesCollapsed && (
+              <div
+                className={`w-full lg:w-[40%] transition-all duration-300 ease-in-out ${
+                  mobileActiveTab === 'answer' ? 'hidden lg:block' : 'block'
+                }`}
+              >
+                <ReferencesPanel
+                  thread={thread}
+                  activeQuestionIndex={activeQuestionIndex}
+                  onQuestionSelect={setActiveQuestionIndex}
+                  activeCitationId={activeCitationId}
+                />
               </div>
             )}
           </div>
-        </div>
-      )}
 
-      {/* Abstract Inspection Modal */}
-      {selectedReference && (
-        <ReferenceModal
-          article={selectedReference}
-          onClose={() => setSelectedReference(null)}
-        />
+          {/* Docked Search Bar at the BOTTOM of the page (Floating rounded card) */}
+          <DockedSearchBar
+            isDocked={true}
+            loading={loading}
+            currentMode={searchMode}
+            onModeChange={setSearchMode}
+            currentSearchType={searchType}
+            onSearchTypeChange={setSearchType}
+            onSubmit={handleSearchSubmit}
+          />
+        </div>
       )}
     </div>
   );

@@ -4,7 +4,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 const api = axios.create({
   baseURL: `${API_URL}/api`,
-  timeout: 45000,
+  timeout: 120000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -47,11 +47,37 @@ export const authService = {
     const res = await api.get('/auth/me');
     return res.data;
   },
+  async updateProfile(profileData) {
+    const res = await api.put('/auth/profile', profileData);
+    return res.data;
+  },
+  async deleteAccount() {
+    const res = await api.delete('/auth/account');
+    return res.data;
+  }
 };
 
 export const evidenceService = {
-  async ask(question, patientContext) {
-    const res = await api.post('/evidence/ask', { question, patientContext });
+  async ask(question, patientContext, options = {}) {
+    let modeVal = String(options.mode || 'quick').toLowerCase();
+    if (modeVal.includes('deep')) modeVal = 'deep';
+    else if (modeVal.includes('lit')) modeVal = 'literature';
+    else if (modeVal.includes('gap')) modeVal = 'gaps';
+    else modeVal = 'quick';
+
+    let searchVal = String(options.searchType || 'ai').toLowerCase();
+    if (searchVal.includes('drug')) searchVal = 'drug';
+    else if (searchVal.includes('lit')) searchVal = 'literature';
+    else searchVal = 'ai';
+
+    const res = await api.post('/evidence/ask', {
+      question,
+      patientContext,
+      mode: modeVal,
+      searchType: searchVal,
+      studentMode: Boolean(options.studentMode),
+      studyFocus: options.studyFocus || ''
+    });
     return res.data;
   },
   async getHistory() {
@@ -64,6 +90,22 @@ export const evidenceService = {
   },
   async deleteHistoryItem(id) {
     const res = await api.delete(`/evidence/history/${id}`);
+    return res.data;
+  },
+  async toggleFavorite(id) {
+    const res = await api.patch(`/evidence/history/${id}/favorite`);
+    return res.data;
+  },
+  async clearAllHistory() {
+    const res = await api.delete('/evidence/history/clear-all');
+    return res.data;
+  },
+  async getTrending() {
+    const res = await api.get('/evidence/trending');
+    return res.data;
+  },
+  async getAlerts() {
+    const res = await api.get('/evidence/alerts');
     return res.data;
   },
   async recheck(id) {

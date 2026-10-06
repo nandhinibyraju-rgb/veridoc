@@ -1,14 +1,20 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import Navbar from './components/Navbar';
+import AppLayout from './components/AppLayout';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import AskPage from './pages/AskPage';
 import HistoryPage from './pages/HistoryPage';
 import ResultDetailPage from './pages/ResultDetailPage';
+import LibraryPage from './pages/LibraryPage';
+import UpdatesPage from './pages/UpdatesPage';
+import ProfilePage from './pages/ProfilePage';
+import SettingsPage from './pages/SettingsPage';
+import PrivacyPage from './pages/PrivacyPage';
+import TermsPage from './pages/TermsPage';
 
-function ProtectedRoute({ children }) {
+function ProtectedRoute({ children, hideRightSidebar = false, workspaceMode = false }) {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -25,22 +31,9 @@ function ProtectedRoute({ children }) {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col">
-      <Navbar />
-      <main className="flex-1 pb-16">
-        {children}
-      </main>
-      <footer className="py-6 border-t border-slate-200 text-center text-xs text-slate-400 bg-white/50">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <div>
-            <strong>Veridoc</strong> — Clinical Evidence Assistant for Physicians
-          </div>
-          <div>
-            Data sourced live from NCBI PubMed E-utilities. Decision support only.
-          </div>
-        </div>
-      </footer>
-    </div>
+    <AppLayout hideRightSidebar={hideRightSidebar} workspaceMode={workspaceMode}>
+      {children}
+    </AppLayout>
   );
 }
 
@@ -83,7 +76,7 @@ export default function App() {
           <Route
             path="/"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute workspaceMode={true}>
                 <AskPage />
               </ProtectedRoute>
             }
@@ -99,8 +92,56 @@ export default function App() {
           <Route
             path="/history/:id"
             element={
-              <ProtectedRoute>
+              <ProtectedRoute hideRightSidebar={true}>
                 <ResultDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/library"
+            element={
+              <ProtectedRoute>
+                <LibraryPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/updates"
+            element={
+              <ProtectedRoute>
+                <UpdatesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <ProfilePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ProtectedRoute>
+                <SettingsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/privacy"
+            element={
+              <ProtectedRoute>
+                <PrivacyPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/terms"
+            element={
+              <ProtectedRoute>
+                <TermsPage />
               </ProtectedRoute>
             }
           />

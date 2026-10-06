@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authService } from '../services/api';
 
-const AuthContext = createContext(null);
+export const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -46,6 +46,30 @@ export function AuthProvider({ children }) {
     return data;
   };
 
+  const [appMode, setAppModeState] = useState(() => {
+    const saved = localStorage.getItem('veridoc_app_mode');
+    if (saved === 'student' || saved === 'doctor') return saved;
+    return localStorage.getItem('veridoc_student_mode') === 'true' ? 'student' : 'doctor';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-mode', appMode);
+  }, [appMode]);
+
+  const setAppMode = (mode) => {
+    const val = mode === 'student' ? 'student' : 'doctor';
+    setAppModeState(val);
+    localStorage.setItem('veridoc_app_mode', val);
+    localStorage.setItem('veridoc_student_mode', String(val === 'student'));
+    document.documentElement.setAttribute('data-mode', val);
+  };
+
+  const toggleStudentMode = () => {
+    setAppMode(appMode === 'doctor' ? 'student' : 'doctor');
+  };
+
+  const studentMode = appMode === 'student';
+
   const logout = () => {
     localStorage.removeItem('veridoc_token');
     localStorage.removeItem('veridoc_user');
@@ -53,8 +77,28 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const updateUser = (newUserData) => {
+    setUser(prev => {
+      const merged = { ...prev, ...newUserData };
+      localStorage.setItem('veridoc_user', JSON.stringify(merged));
+      return merged;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+    <AuthContext.Provider value={{
+      user,
+      token,
+      loading,
+      login,
+      register,
+      logout,
+      updateUser,
+      appMode,
+      setAppMode,
+      studentMode,
+      toggleStudentMode
+    }}>
       {children}
     </AuthContext.Provider>
   );
@@ -67,3 +111,4 @@ export function useAuth() {
   }
   return context;
 }
+

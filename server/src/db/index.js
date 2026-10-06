@@ -50,6 +50,34 @@ function initDatabase() {
     // Column already exists, safe to ignore
   }
 
+  // Migration for is_favorite on queries
+  try {
+    db.exec(`ALTER TABLE queries ADD COLUMN is_favorite INTEGER DEFAULT 0;`);
+  } catch (e) {
+    // Column already exists, safe to ignore
+  }
+
+  // Migration for user profile and preferences columns
+  const userColumns = [
+    { name: 'role', def: "TEXT DEFAULT 'doctor'" },
+    { name: 'specialty', def: "TEXT DEFAULT 'Cardiology'" },
+    { name: 'location', def: "TEXT DEFAULT 'Boston, MA'" },
+    { name: 'institution', def: "TEXT DEFAULT 'Mass General Brigham'" },
+    { name: 'career_stage', def: "TEXT DEFAULT 'Attending Physician'" },
+    { name: 'preferred_specialties', def: "TEXT DEFAULT 'Cardiology, Nephrology, Endocrinology'" },
+    { name: 'default_mode', def: "TEXT DEFAULT 'doctor'" },
+    { name: 'history_retention', def: "TEXT DEFAULT 'forever'" },
+    { name: 'theme', def: "TEXT DEFAULT 'light'" }
+  ];
+
+  for (const col of userColumns) {
+    try {
+      db.exec(`ALTER TABLE users ADD COLUMN ${col.name} ${col.def};`);
+    } catch (e) {
+      // Column already exists, safe to ignore
+    }
+  }
+
   // Seed demo user: demo@veridoc.com / Demo@1234
   const existingDemo = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@veridoc.com');
   if (!existingDemo) {

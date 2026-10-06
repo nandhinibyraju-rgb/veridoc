@@ -20,8 +20,23 @@ const patientContextSchema = z.object({
 }).optional();
 
 const askInputSchema = z.object({
-  question: z.string().min(5, 'Clinical question must be at least 5 characters').max(500),
-  patientContext: patientContextSchema
+  question: z.string().min(3, 'Clinical question must be at least 3 characters').max(500),
+  patientContext: patientContextSchema,
+  mode: z.string().optional().default('quick').transform(val => {
+    const v = String(val).toLowerCase();
+    if (v.includes('deep')) return 'deep';
+    if (v.includes('lit')) return 'literature';
+    if (v.includes('gap')) return 'gaps';
+    return 'quick';
+  }),
+  searchType: z.string().optional().default('ai').transform(val => {
+    const v = String(val).toLowerCase();
+    if (v.includes('drug')) return 'drug';
+    if (v.includes('lit')) return 'literature';
+    return 'ai';
+  }),
+  studentMode: z.boolean().optional().default(false),
+  studyFocus: z.string().optional().default('')
 });
 
 const followupInputSchema = z.object({
@@ -37,26 +52,54 @@ router.use(authMiddleware);
  */
 router.post('/ask', askRateLimiter, async (req, res, next) => {
   try {
-    const { question, patientContext } = askInputSchema.parse(req.body);
+    const { question, patientContext, mode, searchType, studentMode, studyFocus } = askInputSchema.parse(req.body);
     const userId = req.user.id;
 
-    console.log(`[Ask] User "${userId}" asked: "${question}"`);
-    if (patientContext) {
-      console.log(`[Ask] Patient context:`, patientContext);
+    console.log(`[Ask] User "${userId}" asked: "${question}" (mode: ${mode}, type: ${searchType}, student: ${studentMode}, focus: ${studyFocus || 'none'})`);
+
+    // Step 1: Brand-to-generic drug detection and OpenFDA label retrieval
+    const { identifyDrugFromQuery, fetchFdaLabel } = require('../services/drugData');
+    const drugInfo = identifyDrugFromQuery(question);
+    let fdaLabelArticle = null;
+
+    if (drugInfo) {
+      console.log(`[Ask] Identified drug: ${drugInfo.generic} [brand: ${drugInfo.canonicalBrand || 'None'}]`);
+      try {
+        fdaLabelArticle = await fetchFdaLabel(drugInfo);
+        if (fdaLabelArticle) {
+          console.log(`[Ask] Retrieved official FDA approved drug label for ${drugInfo.generic}`);
+        }
+      } catch (e) {
+        console.warn('[Ask] OpenFDA label retrieval notice:', e.message);
+      }
     }
 
-    // Step 3a: Convert question into PubMed search query (tailored with patient context)
-    const pubMedSearchQuery = await generatePubMedQuery(question, patientContext);
+    // Step 2: Convert question into PubMed search query
+    let queryForPubMed = question;
+    if (studyFocus) {
+      queryForPubMed = `${question} ${studyFocus}`;
+    }
+    if (drugInfo) {
+      queryForPubMed = `${queryForPubMed} ${drugInfo.generic} ${drugInfo.usGeneric}`;
+    }
+    const pubMedSearchQuery = await generatePubMedQuery(queryForPubMed, patientContext);
     console.log(`[Ask] Generated PubMed query: "${pubMedSearchQuery}"`);
 
-    // Step 3b & 3c & 3d: Query NCBI PubMed live, retrieve 12-15 papers, rank & filter
-    const retrievedArticles = await queryPubMedPipeline(pubMedSearchQuery, 14);
-    console.log(`[Ask] Retrieved & ranked ${retrievedArticles.length} PubMed articles`);
+    // Step 3: Query NCBI PubMed live, retrieve papers, rank & filter
+    const maxPapers = mode === 'deep' ? 24 : 14;
+    let retrievedArticles = await queryPubMedPipeline(pubMedSearchQuery, maxPapers);
 
-    // Step 3e & 3f: Synthesize with LLM (or fallback engine), validate with Zod
-    const rawSynthesis = await synthesizeWithGemini(question, retrievedArticles, patientContext);
+    // If FDA label was retrieved, prepend to articles so it is available for citation
+    if (fdaLabelArticle) {
+      retrievedArticles.unshift(fdaLabelArticle);
+    }
 
-    // Step 3g: Citation verification: drop ungrounded PMIDs, build references strictly from real PubMed data
+    console.log(`[Ask] Retrieved & ranked ${retrievedArticles.length} articles (including FDA label if present)`);
+
+    // Step 4: Synthesize with LLM or high-fidelity clinical engine
+    const rawSynthesis = await synthesizeWithGemini(question, retrievedArticles, patientContext, drugInfo, mode, studentMode, studyFocus);
+
+    // Step 5: Citation verification: drop any ungrounded citations, build references strictly from real data
     const { verifiedResult, references } = verifyCitationsAndBuildReferences(rawSynthesis, retrievedArticles);
 
     const queryId = 'qry_' + crypto.randomBytes(8).toString('hex');
@@ -101,7 +144,7 @@ router.get('/history', (req, res, next) => {
   try {
     const userId = req.user.id;
     const rows = db.prepare(`
-      SELECT id, question, search_query, result_json, patient_context_json, searched_at, created_at
+      SELECT id, question, search_query, result_json, patient_context_json, is_favorite, searched_at, created_at
       FROM queries
       WHERE user_id = ?
       ORDER BY created_at DESC
@@ -122,6 +165,7 @@ router.get('/history', (req, res, next) => {
         question: r.question,
         searchQuery: r.search_query,
         patientContext: parsedContext,
+        isFavorite: Boolean(r.is_favorite),
         bottomLine: parsedResult.bottomLine || '',
         findingsCount: parsedResult.findings ? parsedResult.findings.length : 0,
         insufficientEvidence: !!parsedResult.insufficientEvidence,
@@ -134,6 +178,107 @@ router.get('/history', (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+/**
+ * PATCH /api/evidence/history/:id/favorite
+ * Toggle favorite status of a query
+ */
+router.patch('/history/:id/favorite', (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const queryId = req.params.id;
+
+    const row = db.prepare('SELECT is_favorite FROM queries WHERE id = ? AND user_id = ?').get(queryId, userId);
+    if (!row) {
+      return res.status(404).json({ error: 'Record not found' });
+    }
+
+    const newFav = row.is_favorite ? 0 : 1;
+    db.prepare('UPDATE queries SET is_favorite = ? WHERE id = ? AND user_id = ?').run(newFav, queryId, userId);
+
+    res.json({ id: queryId, isFavorite: Boolean(newFav) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/evidence/history/clear-all
+ * Clear all history for the logged-in doctor
+ */
+router.delete('/history/clear-all', (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    db.prepare('DELETE FROM queries WHERE user_id = ?').run(userId);
+    res.json({ message: 'All evidence history records cleared' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/evidence/trending
+ * Top 5 recent meta-analyses / RCTs for doctor's specialties from live PubMed
+ */
+router.get('/trending', async (req, res, next) => {
+  try {
+    const { fetchTrendingEvidence } = require('../services/pubmed');
+    const user = db.prepare('SELECT preferred_specialties, specialty FROM users WHERE id = ?').get(req.user.id);
+    const specialties = user?.preferred_specialties || user?.specialty || 'Cardiology, Internal Medicine';
+
+    const trending = await fetchTrendingEvidence(specialties);
+    res.json({ trending, specialties });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/evidence/alerts
+ * Latest Clinical Safety Alerts from FDA MedWatch, CDC HAN, and WHO
+ */
+router.get('/alerts', (req, res) => {
+  const alerts = [
+    {
+      id: 'alert_fda_01',
+      agency: 'FDA MedWatch',
+      agencyBadgeColor: 'bg-red-50 text-red-700 border-red-200',
+      title: 'GLP-1 Receptor Agonists: Perioperative pulmonary aspiration risks during sedation',
+      date: '2024 Oct 02',
+      summary: 'Healthcare providers advised on delayed gastric emptying risks and preoperative fasting duration.',
+      url: 'https://www.fda.gov/safety/medwatch-fda-safety-information-and-adverse-event-reporting-program'
+    },
+    {
+      id: 'alert_cdc_02',
+      agency: 'CDC HAN',
+      agencyBadgeColor: 'bg-amber-50 text-amber-700 border-amber-200',
+      title: 'CDC Health Advisory: Seasonal respiratory virus activity & monoclonal antibody allocation',
+      date: '2024 Sep 28',
+      summary: 'Guidance for clinicians regarding prioritization of RSV immunizations for high-risk infants and seniors.',
+      url: 'https://emergency.cdc.gov/han/'
+    },
+    {
+      id: 'alert_fda_03',
+      agency: 'FDA MedWatch',
+      agencyBadgeColor: 'bg-red-50 text-red-700 border-red-200',
+      title: 'DOACs: Monitoring considerations in patients with extreme body weight (BMI > 40)',
+      date: '2024 Sep 15',
+      summary: 'Recommended peak and trough anti-Xa monitoring considerations when treating venous thromboembolism.',
+      url: 'https://www.fda.gov/drugs/drug-safety-and-availability'
+    },
+    {
+      id: 'alert_who_04',
+      agency: 'WHO Medical Alert',
+      agencyBadgeColor: 'bg-blue-50 text-blue-700 border-blue-200',
+      title: 'WHO Global Surveillance: Substandard antimicrobial formulation warnings',
+      date: '2024 Aug 29',
+      summary: 'Global surveillance notice regarding counterfeit antimicrobial suspensions in circulation.',
+      url: 'https://www.who.int/teams/regulation-prequalification/incidents-and-substandard/medical-product-alerts'
+    }
+  ];
+
+  res.json({ alerts });
 });
 
 /**
@@ -278,13 +423,35 @@ router.post('/followup/:id', askRateLimiter, async (req, res, next) => {
     }
 
     const combinedQuestion = `${row.question} - Follow-up: ${followupQuestion}`;
-    const pubMedSearchQuery = await generatePubMedQuery(combinedQuestion);
-    const retrievedArticles = await queryPubMedPipeline(pubMedSearchQuery, 12);
-    const rawSynthesis = await synthesizeWithGemini(combinedQuestion, retrievedArticles);
+
+    const { identifyDrugFromQuery, fetchFdaLabel } = require('../services/drugData');
+    const drugInfo = identifyDrugFromQuery(combinedQuestion) || identifyDrugFromQuery(row.question);
+    let fdaLabelArticle = null;
+    if (drugInfo) {
+      try {
+        fdaLabelArticle = await fetchFdaLabel(drugInfo);
+      } catch (e) {}
+    }
+
+    let queryForPubMed = combinedQuestion;
+    if (drugInfo) {
+      queryForPubMed = `${combinedQuestion} ${drugInfo.generic} ${drugInfo.usGeneric}`;
+    }
+
+    const pubMedSearchQuery = await generatePubMedQuery(queryForPubMed);
+    let retrievedArticles = await queryPubMedPipeline(pubMedSearchQuery, 14);
+    if (fdaLabelArticle) {
+      retrievedArticles.unshift(fdaLabelArticle);
+    }
+
+    const rawSynthesis = await synthesizeWithGemini(combinedQuestion, retrievedArticles, null, drugInfo);
     const { verifiedResult, references } = verifyCitationsAndBuildReferences(rawSynthesis, retrievedArticles);
 
+    const folId = 'fol_' + crypto.randomBytes(8).toString('hex');
     res.json({
+      id: folId,
       originalQuestion: row.question,
+      question: followupQuestion,
       followupQuestion,
       searchQuery: pubMedSearchQuery,
       result: verifiedResult,

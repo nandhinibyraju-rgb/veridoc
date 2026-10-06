@@ -83,7 +83,7 @@ export default function HistoryPage() {
   );
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
@@ -166,7 +166,7 @@ export default function HistoryPage() {
           {filteredHistory.map((item) => (
             <div
               key={item.id}
-              onClick={() => navigate(`/history/${item.id}`)}
+              onClick={() => navigate(`/?id=${item.id}`)}
               className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-xs hover:border-teal-300 hover:shadow-sm transition cursor-pointer group"
             >
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
@@ -216,7 +216,7 @@ export default function HistoryPage() {
                   {/* Open details */}
                   <button
                     type="button"
-                    onClick={() => navigate(`/history/${item.id}`)}
+                    onClick={() => navigate(`/?id=${item.id}`)}
                     className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-[#0F766E] bg-teal-50 hover:bg-teal-100 rounded-lg border border-teal-200 transition"
                   >
                     <span>View Result</span>

@@ -35,21 +35,10 @@ export default function ResultDetailPage() {
   const [selectedReference, setSelectedReference] = useState(null);
 
   useEffect(() => {
-    async function loadDetail() {
-      setLoading(true);
-      setError(null);
-      try {
-        const item = await evidenceService.getHistoryItem(id);
-        setData(item);
-      } catch (err) {
-        console.error('Failed to load item:', err);
-        setError('Evidence record could not be loaded or has been deleted.');
-      } finally {
-        setLoading(false);
-      }
+    if (id) {
+      navigate(`/?id=${id}`, { replace: true });
     }
-    loadDetail();
-  }, [id]);
+  }, [id, navigate]);
 
   const handleCopySummary = () => {
     if (!data) return;
@@ -137,10 +126,10 @@ export default function ResultDetailPage() {
     );
   }
 
-  const { question, result, references, searchedAt } = data;
+  const { question, result, references, searchedAt, patientContext } = data;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="space-y-6">
       {/* Top Navigation & Controls */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Link
@@ -269,7 +258,7 @@ export default function ResultDetailPage() {
           </button>
         </div>
 
-        <div className="mt-5 text-lg sm:text-[19px] text-[#0F172A] leading-relaxed font-serif-clinical">
+        <div className="mt-5 text-[17px] text-[#0F172A] leading-[1.75]">
           {result.bottomLine}
         </div>
 

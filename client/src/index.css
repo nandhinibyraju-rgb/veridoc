@@ -4,8 +4,8 @@
   body {
     background-color: #F8FAFC;
     color: #475569;
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-size: 16px;
+    font-family: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 15px;
     line-height: 1.6;
     margin: 0;
     padding: 0;
@@ -13,12 +13,18 @@
 
   h1, h2, h3, h4, h5, h6 {
     color: #0F172A;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-weight: 600;
+    letter-spacing: -0.02em;
   }
 }
 
-.font-serif-clinical {
-  font-family: 'Source Serif 4', Georgia, Cambria, 'Times New Roman', serif;
+/* Answer text: DM Sans at 17px with generous line height (no serif) */
+.answer-text,
+.font-answer {
+  font-family: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 17px;
+  line-height: 1.75;
 }
 
 /* Custom scrollbar */

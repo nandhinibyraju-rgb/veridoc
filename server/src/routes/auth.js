@@ -95,7 +95,83 @@ router.post('/login', authRateLimiter, async (req, res, next) => {
 
 // GET /api/auth/me
 router.get('/me', authMiddleware, (req, res) => {
-  res.json({ user: req.user });
+  try {
+    const user = db.prepare(`
+      SELECT id, name, email, role, specialty, location, institution, career_stage,
+             preferred_specialties, default_mode, history_retention, theme, created_at
+      FROM users WHERE id = ?
+    `).get(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ user });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/auth/profile
+router.put('/profile', authMiddleware, (req, res) => {
+  try {
+    const {
+      name,
+      role,
+      specialty,
+      location,
+      institution,
+      career_stage,
+      preferred_specialties,
+      default_mode,
+      history_retention,
+      theme
+    } = req.body;
+
+    db.prepare(`
+      UPDATE users
+      SET name = COALESCE(?, name),
+          role = COALESCE(?, role),
+          specialty = COALESCE(?, specialty),
+          location = COALESCE(?, location),
+          institution = COALESCE(?, institution),
+          career_stage = COALESCE(?, career_stage),
+          preferred_specialties = COALESCE(?, preferred_specialties),
+          default_mode = COALESCE(?, default_mode),
+          history_retention = COALESCE(?, history_retention),
+          theme = COALESCE(?, theme)
+      WHERE id = ?
+    `).run(
+      name,
+      role,
+      specialty,
+      location,
+      institution,
+      career_stage,
+      preferred_specialties,
+      default_mode,
+      history_retention,
+      theme,
+      req.user.id
+    );
+
+    const updated = db.prepare(`
+      SELECT id, name, email, role, specialty, location, institution, career_stage,
+             preferred_specialties, default_mode, history_retention, theme, created_at
+      FROM users WHERE id = ?
+    `).get(req.user.id);
+
+    res.json({ message: 'Profile updated successfully', user: updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/auth/account (for Settings page account deletion)
+router.delete('/account', authMiddleware, (req, res) => {
+  try {
+    db.prepare('DELETE FROM queries WHERE user_id = ?').run(req.user.id);
+    db.prepare('DELETE FROM users WHERE id = ?').run(req.user.id);
+    res.json({ message: 'Account and associated records deleted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

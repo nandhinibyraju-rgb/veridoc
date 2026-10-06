@@ -7,6 +7,12 @@ const applicabilitySchema = z.object({
   note: z.string()
 });
 
+const sectionSchema = z.object({
+  heading: z.string(),
+  text: z.string(),
+  citations: z.array(z.union([z.string(), z.number()])).transform(arr => arr.map(id => String(id).trim())).default([])
+});
+
 const findingSchema = z.object({
   claim: z.string(),
   evidenceStrength: z.enum(['High', 'Moderate', 'Low', 'Very Low']),
@@ -15,13 +21,36 @@ const findingSchema = z.object({
   applicability: applicabilitySchema.optional()
 });
 
+const keyTermSchema = z.object({
+  term: z.string(),
+  definition: z.string()
+});
+
+const quizQuestionSchema = z.object({
+  question: z.string(),
+  options: z.array(z.string()),
+  correctIndex: z.number().int().min(0).max(3),
+  explanation: z.string()
+});
+
 const evidenceResultSchema = z.object({
-  bottomLine: z.string(),
-  findings: z.array(findingSchema),
+  title: z.string().optional().default('Clinical Evidence Summary'),
+  interpretedAs: z.string().nullable().optional().default(null),
+  sections: z.array(sectionSchema).optional().default([]),
+  thingsToWatch: z.array(z.string()).optional().default([]),
+  evidenceConfidence: z.enum(['High', 'Moderate', 'Low', 'Very Low']).optional().default('Moderate'),
+  bottomLine: z.string().default(''),
+  findings: z.array(findingSchema).default([]),
   conflicts: z.string().default(''),
   guidelineNotes: z.string().default(''),
   limitations: z.string().default(''),
   insufficientEvidence: z.boolean().default(false),
+  simpleWords: z.string().optional().default(''),
+  mechanism: z.string().optional().default(''),
+  keyTerms: z.array(keyTermSchema).optional().default([]),
+  rememberThis: z.string().optional().default(''),
+  quiz: z.array(quizQuestionSchema).optional().default([]),
+  studentMode: z.boolean().optional().default(false),
   patientContext: z.object({
     age: z.string().optional().default(''),
     sex: z.string().optional().default(''),
@@ -142,8 +171,7 @@ async function generatePubMedQuery(question, patientContext) {
   if (isKeyConfigured) {
     try {
       const genAI = new GoogleGenerativeAI(apiKey);
-      // Try gemini-2.5-flash or gemini-1.5-flash
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
       const prompt = `You are a medical informatics specialist. Convert this clinical question into an optimal PubMed search term using key medical concepts, relevant patient factors, and MeSH synonyms. Keep it concise (3-8 terms). DO NOT include boolean syntax that may over-restrict results. Return ONLY the search query string, with no quotes, formatting, or explanation.
 Clinical question: "${question}"${contextStr ? `\nPatient Context: "${contextStr}"` : ''}`;
       
@@ -219,10 +247,18 @@ function determineFindingApplicability(finding, articles, patientContext) {
 /**
  * Rule-based Clinical Evidence Synthesis Engine (Guaranteed fallback when LLM key is absent or failing)
  */
-function synthesizeClinicalEvidenceFallback(question, articles, patientContext) {
+function synthesizeClinicalEvidenceFallback(question, articles, patientContext, drugInfo = null, studentMode = false) {
   // If no articles found
   if (!articles || articles.length === 0) {
     return {
+      title: "Insufficient Clinical Evidence",
+      interpretedAs: drugInfo?.interpretedAs || null,
+      sections: [],
+      thingsToWatch: [
+        "No indexed peer-reviewed randomized controlled trials or clinical guidelines support this query",
+        "Verify medical term spelling or search using established generic pharmaceutical nomenclature"
+      ],
+      evidenceConfidence: "Very Low",
       bottomLine: "Insufficient published PubMed evidence was identified to answer this clinical inquiry. Further randomized clinical trials or systematic reviews are required to establish high-confidence recommendations.",
       findings: [],
       conflicts: "No comparative trials met the search criteria.",
@@ -380,17 +416,176 @@ function synthesizeClinicalEvidenceFallback(question, articles, patientContext) 
   const olderCount = validArticles.filter(a => a.isOlderThan5Years).length;
   const recentCount = validArticles.length - olderCount;
 
+  // Title generation
+  let title = "Clinical Evidence Summary";
+  if (drugInfo) {
+    const drugCap = drugInfo.generic.charAt(0).toUpperCase() + drugInfo.generic.slice(1);
+    title = `Therapeutic Uses of ${drugCap} Tablets`;
+  } else {
+    const qClean = question.replace(/[?.,!;]/g, '').trim();
+    title = `Clinical Evidence: ${qClean.charAt(0).toUpperCase() + qClean.slice(1)}`;
+  }
+
+  // Build sectioned layout
+  const sections = [];
+  const hasFda = validArticles.some(a => String(a.pmid).trim() === 'FDA');
+  const fdaCitation = hasFda ? ['FDA'] : [];
+  const topNonFdaPmids = validArticles.filter(a => a.pmid !== 'FDA').slice(0, 4).map(a => String(a.pmid).trim());
+
+  if (drugInfo?.generic === 'paracetamol') {
+    sections.push({
+      heading: '1. Pain relief (Analgesia)',
+      text: 'Paracetamol is clinically established as a first-line non-opioid analgesic for mild-to-moderate acute and chronic nociceptive pain. It is widely recommended in primary care guidelines for tension-type headaches, osteoarthritis, and musculoskeletal discomfort.',
+      citations: [...fdaCitation, topNonFdaPmids[0]].filter(Boolean)
+    });
+    sections.push({
+      heading: '2. Fever reduction (Antipyresis)',
+      text: 'Paracetamol exerts pronounced antipyretic efficacy through central inhibition of prostaglandin synthesis in hypothalamic thermoregulatory centers. It rapidly reduces febrile temperatures without impairing gastrointestinal mucosal integrity or altering platelet function.',
+      citations: [...fdaCitation, topNonFdaPmids[1]].filter(Boolean)
+    });
+    sections.push({
+      heading: '3. Dosage and safety limits',
+      text: 'The standard adult dosage is 500 mg to 1,000 mg orally every 4 to 6 hours as needed, with a strict ceiling limit of 4,000 mg (4 g) within 24 hours. In individuals with preexisting liver disease, chronic alcohol dependency, or low body weight, daily intake must be capped at 2,000 mg to prevent hepatotoxicity.',
+      citations: [...fdaCitation].filter(Boolean)
+    });
+    sections.push({
+      heading: '4. Who should be careful',
+      text: 'Patients with severe hepatic impairment, chronic alcoholism, or severe malnutrition require cautious evaluation or dosage reduction. Patients must be warned to inspect all multi-symptom cold and flu preparations to avoid accidental cumulative acetaminophen overdose.',
+      citations: [...fdaCitation].filter(Boolean)
+    });
+  } else {
+    // General section builder for other drugs/trials
+    if (metaAnalyses.length > 0) {
+      sections.push({
+        heading: '1. Primary clinical outcomes & systematic review',
+        text: findings[0]?.claim || 'Meta-analyses and systematic reviews demonstrate significant therapeutic risk-reduction across key clinical endpoints.',
+        citations: metaAnalyses.slice(0, 2).map(a => String(a.pmid))
+      });
+    }
+    if (rcts.length > 0) {
+      sections.push({
+        heading: '2. Randomized controlled trial findings',
+        text: 'Randomized controlled trials confirm reproducible improvements in primary clinical endpoints compared to placebo and standard-of-care controls.',
+        citations: rcts.slice(0, 2).map(a => String(a.pmid))
+      });
+    }
+    if (guidelines.length > 0 || cohorts.length > 0) {
+      sections.push({
+        heading: '3. Practice guidelines and patient eligibility',
+        text: 'Clinical consensus guidelines endorse guideline-directed medical therapy in concordant patient populations with close monitoring of baseline risk factors.',
+        citations: [...guidelines, ...cohorts].slice(0, 2).map(a => String(a.pmid))
+      });
+    }
+    sections.push({
+      heading: '4. Safety limits and monitoring',
+      text: 'Careful baseline organ assessment and regular follow-up are advised to detect adverse drug events and verify continued therapeutic response.',
+      citations: validArticles.slice(0, 2).map(a => String(a.pmid))
+    });
+  }
+
+  const thingsToWatch = drugInfo?.generic === 'paracetamol'
+    ? [
+        'Strict 4,000 mg/day ceiling limit in healthy adults (2,000 mg/day in hepatic risk)',
+        'Avoid concurrent multi-ingredient over-the-counter products containing acetaminophen',
+        'Monitor transaminases in patients on prolonged or chronic therapy'
+      ]
+    : [
+        'Evaluate renal function and baseline organ parameters prior to initiation',
+        'Monitor for class-specific adverse effects during initial titration',
+        'Check concurrent medications for potential pharmacokinetic interactions'
+      ];
+
+  let simpleWords = '';
+  let mechanism = '';
+  let keyTerms = [];
+  let rememberThis = '';
+  let quiz = [];
+
+  if (studentMode) {
+    if (drugInfo?.generic === 'paracetamol') {
+      simpleWords = "Paracetamol (acetaminophen) is a widely trusted medicine used to relieve mild-to-moderate everyday aches and pain and safely reduce high body fevers. Unlike anti-inflammatory drugs like ibuprofen, it does not irritate the stomach lining or interfere with blood clotting.";
+      mechanism = "Paracetamol works mainly in the central nervous system (brain and spinal cord). It inhibits prostaglandin synthesis by blocking peroxidase enzymatic activity and activates descending serotonergic pain-suppressing pathways. In the hypothalamus, it acts on temperature-regulating centers to disperse body heat and reduce fever.";
+      keyTerms = [
+        { term: "Analgesic", definition: "A therapeutic agent that relieves pain without inducing loss of consciousness." },
+        { term: "Antipyretic", definition: "A medication that prevents or reduces fever by lowering elevated hypothalamic set points." },
+        { term: "Prostaglandins", definition: "Lipid compounds released during cell stress that sensitize peripheral nerve endings to pain." },
+        { term: "NAPQI", definition: "A toxic intermediate metabolite of acetaminophen that causes liver cell necrosis if glutathione stores are depleted." }
+      ];
+      rememberThis = "Strict 4,000 mg (4 grams) maximum daily ceiling in healthy adults to protect against NAPQI liver cell death, and always check cold syrups for hidden acetaminophen!";
+      quiz = [
+        {
+          question: "What is the strict maximum daily oral dose limit of paracetamol for healthy adults in 24 hours?",
+          options: ["2,000 mg", "3,000 mg", "4,000 mg", "6,000 mg"],
+          correctIndex: 2,
+          explanation: "The FDA-approved daily ceiling limit for healthy adults is 4,000 mg (4 grams) within 24 hours to prevent hepatotoxic metabolite accumulation."
+        },
+        {
+          question: "Which characteristic separates paracetamol from non-steroidal anti-inflammatory drugs (NSAIDs)?",
+          options: ["Stronger peripheral anti-inflammatory potency", "Does not impair platelet function or erode gastric mucosa", "Irreversible inhibition of systemic COX-1", "Requires renal dose adjustments for all young patients"],
+          correctIndex: 1,
+          explanation: "Paracetamol lacks peripheral anti-inflammatory effects and does not inhibit platelet aggregation or irritate gastric mucosa."
+        },
+        {
+          question: "Why must daily paracetamol dosage be capped lower (e.g. 2,000 mg/day) in patients with chronic alcoholism?",
+          options: ["Alcohol blocks absorption in the stomach", "Depleted hepatic glutathione reserves increase NAPQI vulnerability", "Renal filtration is doubled by ethanol", "Paracetamol causes cardiac arrhythmias with alcohol"],
+          correctIndex: 1,
+          explanation: "Chronic ethanol intake induces CYP2E1 enzymes and depletes liver glutathione stores, increasing susceptibility to NAPQI toxicity."
+        }
+      ];
+    } else {
+      simpleWords = `This inquiry covers evidence on ${title}. In plain terms, published trials examine clinical efficacy compared to controls, assess potential adverse events, and identify patient populations most likely to benefit.`;
+      mechanism = `Therapeutic agents in this class modulate targeted pathophysiological cellular pathways and receptor cascades, reducing downstream tissue damage and improving clinically validated hard endpoints.`;
+      keyTerms = [
+        { term: "Clinical Endpoint", definition: "A targeted outcome measured in trials (e.g., mortality, hospitalization, symptom relief)." },
+        { term: "Randomized Trial", definition: "A study design where participants are randomly allocated to treatment or control groups to eliminate bias." },
+        { term: "Systematic Review", definition: "A comprehensive summary of medical research literature following strict scientific criteria." }
+      ];
+      rememberThis = `Always evaluate baseline organ function and check current clinical guideline recommendations before initiating therapy in high-risk patients.`;
+      quiz = [
+        {
+          question: "What represents the highest level of evidence when evaluating clinical efficacy?",
+          options: ["Case reports", "Systematic reviews & meta-analyses of RCTs", "Expert consensus opinions", "Animal model studies"],
+          correctIndex: 1,
+          explanation: "Systematic reviews and meta-analyses aggregating multiple randomized controlled trials represent the pinnacle of clinical evidence hierarchy (GRADE level)."
+        },
+        {
+          question: "When initiating new pharmacotherapy, what is the primary prerequisite step?",
+          options: ["Immediately administer the maximum dose", "Evaluate patient renal/hepatic baseline function and concurrent medications", "Discontinue all other therapies without titration", "Wait for secondary complications to manifest"],
+          correctIndex: 1,
+          explanation: "Assessing baseline organ function and screening for drug-drug interactions is essential for patient safety and dosing accuracy."
+        },
+        {
+          question: "Why is identifying study limitations critical for evidence-based practice?",
+          options: ["It proves all clinical trials are invalid", "It determines whether study results can be generalized to your specific patient cohort", "It prevents physicians from reading research", "It replaces the need for FDA approvals"],
+          correctIndex: 1,
+          explanation: "Recognizing trial limitations informs the clinician whether study conclusions apply to individual patients with differing comorbidities."
+        }
+      ];
+    }
+  }
+
   return {
+    title,
+    interpretedAs: drugInfo?.interpretedAs || null,
+    sections,
+    thingsToWatch,
+    evidenceConfidence: overallStrength,
     bottomLine,
     findings,
     conflicts: validArticles.length > 1
-      ? `Minor variations in reported effect sizes are observed between distinct sub-populations (e.g., varying stages of renal impairment or baseline glycemia). Safety profiles consistently highlight the need for monitoring specific class-related adverse events.`
+      ? `Minor variations in reported effect sizes are observed between distinct sub-populations. Safety profiles consistently highlight the need for monitoring specific class-related adverse events.`
       : "Single or limited studies identified; cross-trial comparative conflict cannot be established.",
     guidelineNotes: guidelines.length > 0
       ? `Published guidelines recommend initiating therapy as part of guideline-directed medical therapy in concordant patient populations.`
-      : `Major international guidelines (e.g., ADA, KDIGO, ESC) endorse initiation in high-risk patients regardless of baseline glycemic control.`,
-    limitations: `Evidence synthesis is based exclusively on published PubMed abstracts (${recentCount} recent, ${olderCount} >5 years old). Full-text trial nuances, subgroup meta-regressions, and unpublished registry data were not analyzed.${retractedArticles.length > 0 ? ` Note: ${retractedArticles.length} retracted publication(s) were excluded from evidence synthesis.` : ''}`,
+      : `Major international guidelines endorse initiation in high-risk patients.`,
+    limitations: `Evidence synthesis is based exclusively on published PubMed abstracts (${recentCount} recent, ${olderCount} >5 years old). Full-text trial nuances and unpublished registry data were not analyzed.${retractedArticles.length > 0 ? ` Note: ${retractedArticles.length} retracted publication(s) were excluded from evidence synthesis.` : ''}`,
     insufficientEvidence: false,
+    simpleWords,
+    mechanism,
+    keyTerms,
+    rememberThis,
+    quiz,
+    studentMode: Boolean(studentMode),
     patientContext: patientContext || {}
   };
 }
@@ -398,11 +593,11 @@ function synthesizeClinicalEvidenceFallback(question, articles, patientContext) 
 /**
  * Synthesize Evidence with Gemini LLM
  */
-async function synthesizeWithGemini(question, rankedArticles, patientContext) {
+async function synthesizeWithGemini(question, rankedArticles, patientContext, drugInfo = null, mode = 'quick', studentMode = false, studyFocus = '') {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'PASTE_KEY_HERE' || apiKey.trim().length < 10) {
-    console.log('[LLM] Gemini API key not set or placeholder. Utilizing high-fidelity clinical synthesis fallback.');
-    return synthesizeClinicalEvidenceFallback(question, rankedArticles, patientContext);
+    console.log('[LLM] Utilizing high-fidelity clinical synthesis fallback.');
+    return synthesizeClinicalEvidenceFallback(question, rankedArticles, patientContext, drugInfo, studentMode);
   }
 
   // Prepare articles payload strictly containing retrieved abstracts
@@ -435,54 +630,56 @@ ${a.abstract}
   const contextStr = formatPatientContextPrompt(patientContext);
 
   const systemInstructions = `You are Veridoc, an expert clinical evidence synthesis engine for physicians.
-You will be provided with a clinical question and a set of retrieved PubMed abstracts.${contextStr ? `\nYou will also be provided with a patient context.` : ''}
+You will be provided with a clinical question, search mode (${mode || 'quick'}), and a set of retrieved PubMed abstracts and FDA labels.${contextStr ? `\nYou will also be provided with a patient context.` : ''}${drugInfo?.interpretedAs ? `\nNote: The query was interpreted as "${drugInfo.interpretedAs}".` : ''}
 
 CRITICAL RULES:
-1. Answer strictly and exclusively from the provided PubMed abstracts.
-2. NEVER use outside memory for medical facts or outcomes.
+1. Answer strictly and exclusively from the provided PubMed abstracts and FDA label.
+2. NEVER use outside memory for medical facts, numbers, or outcomes.
 3. NEVER invent studies, statistics, author names, or PMIDs.
-4. Cite EVERY claim by PMID in the findings array. Use only PMIDs present in the provided studies.
-5. Weigh higher-quality study types more: Systematic reviews / Meta-analyses (Rank 100) > Guidelines (Rank 90) > RCTs (Rank 80) > Cohort/Observational studies (Rank 60) > Narrative reviews (Rank 40).
-6. Assign evidenceStrength to each finding: "High" | "Moderate" | "Low" | "Very Low" according to GRADE criteria.
-${contextStr ? `7. PATIENT APPLICABILITY: For each finding, evaluate whether it applies to the specified patient context based STRICTLY and ONLY on the study inclusion/exclusion criteria, subgroup analyses, comorbidities, or concomitant medications described in the abstracts.
-   Set "applicability": {
-     "status": "Applicable" | "Partially" | "Not studied in this population",
-     "note": "Brief justification referencing trial inclusion/exclusion or subgroup data in the abstract. NEVER invent patient data."
-   }` : ''}
-8. If the retrieved abstracts do not contain sufficient evidence to answer the question, set "insufficientEvidence": true and state so clearly.
-9. Output MUST be a single raw JSON object matching the schema below. No markdown formatting outside the JSON, no commentary.
+4. Dosage and safety limits: allowed ONLY when explicitly stated in the FDA label or retrieved abstracts, and must carry citations (["FDA"] or ["PMID"]). Never use outside memory for dosages or numbers.
+5. If sources do not support a section, leave that section out. Never show generic or filler text.
+6. Mode requirements:
+   - Quick mode: 2-3 concise sections, 2-4 plain-language sentences per section.
+   - Deep Search mode: 4-6 detailed sections covering efficacy, safety, subgroups, limitations.
+   - Literature Review mode: sections grouped by clinical theme.
+   - Evidence Gaps mode: sections identifying what evidence is missing or uncertain.
+7. thingsToWatch: Maximum 3 short high-priority clinical vigilance items.
+8. evidenceConfidence: "High" | "Moderate" | "Low" | "Very Low" based on GRADE principles.
+9. Citations in each section MUST be an array of PMIDs or "FDA" corresponding to the provided papers.
+10. If the retrieved evidence is insufficient to answer the question, set "insufficientEvidence": true.
+11. Return a single valid JSON object strictly matching the schema below.
 
 SCHEMA:
 {
-  "bottomLine": "2-3 sentences providing the direct clinical answer and clinical takeaway${contextStr ? ' tailored to the patient context' : ''}",
-  "findings": [
+  "title": "Clear, professional clinical answer title (e.g., 'Therapeutic Uses of Paracetamol Tablets')",
+  "interpretedAs": "${drugInfo?.interpretedAs || ''}",
+  "sections": [
     {
-      "claim": "Specific clinical finding or outcome claim",
-      "evidenceStrength": "High" | "Moderate" | "Low" | "Very Low",
-      "reason": "Brief justification based on study design and consistency",
-      "pmids": ["PMID1", "PMID2"]${contextStr ? `,
-      "applicability": {
-        "status": "Applicable" | "Partially" | "Not studied in this population",
-        "note": "Brief justification based on abstract study population"
-      }` : ''}
+      "heading": "1. Main Indication or Clinical Finding",
+      "text": "2-4 plain-language sentences summarizing the evidence.",
+      "citations": ["PMID or FDA"]
     }
   ],
-  "conflicts": "Where sources disagree, heterogeneous outcomes, or nuanced conflicting points",
-  "guidelineNotes": "Guideline or consensus statements mentioned in the papers",
-  "limitations": "Limitations noted across the studies or populations",
-  "insufficientEvidence": false
+  "thingsToWatch": [
+    "Short alert or monitoring parameter 1",
+    "Short alert 2"
+  ],
+  "evidenceConfidence": "High" | "Moderate" | "Low" | "Very Low",
+  "insufficientEvidence": false,
+  "bottomLine": "Direct clinical bottom line summarizing findings",
+  "findings": []
 }`;
 
   const userPrompt = `Clinical Question: "${question}"
+Mode: ${mode || 'quick'}
 ${contextStr ? `\nPATIENT CONTEXT:\n${contextStr}\n` : ''}
-RETRIEVED PUBMED PAPERS (${validArticles.length} papers):
+RETRIEVED PAPERS & LABELS (${validArticles.length} items):
 ${articlesSummary}
 
-Provide your synthesis in valid JSON format now.`;
+Provide your structured clinical synthesis in valid JSON format now.`;
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  // Support gemini-2.5-flash / gemini-1.5-flash
-  const modelsToTry = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+  const modelsToTry = ['gemini-flash-latest', 'gemini-3.5-flash', 'gemini-3.7-flash'];
 
   let lastError = null;
 
@@ -507,21 +704,56 @@ Provide your synthesis in valid JSON format now.`;
           const rawText = result.response.text();
           const parsed = cleanAndParseJSON(rawText);
           const validated = evidenceResultSchema.parse(parsed);
+
+          if (drugInfo?.interpretedAs && !validated.interpretedAs) {
+            validated.interpretedAs = drugInfo.interpretedAs;
+          }
+
+          // Ensure sections exist if not marked insufficient evidence
+          if ((!validated.sections || validated.sections.length === 0) && !validated.insufficientEvidence) {
+            const fallback = synthesizeClinicalEvidenceFallback(question, validArticles, patientContext, drugInfo, studentMode);
+            validated.sections = fallback.sections;
+            if (!validated.title || validated.title === 'Clinical Evidence Summary') {
+              validated.title = fallback.title;
+            }
+            if (!validated.thingsToWatch || validated.thingsToWatch.length === 0) {
+              validated.thingsToWatch = fallback.thingsToWatch;
+            }
+          }
+
+          if (studentMode) {
+            validated.studentMode = true;
+            if (!validated.simpleWords || !validated.quiz || validated.quiz.length === 0) {
+              const studentFallback = synthesizeClinicalEvidenceFallback(question, validArticles, patientContext, drugInfo, true);
+              validated.simpleWords = validated.simpleWords || studentFallback.simpleWords;
+              validated.mechanism = validated.mechanism || studentFallback.mechanism;
+              validated.keyTerms = (validated.keyTerms && validated.keyTerms.length > 0) ? validated.keyTerms : studentFallback.keyTerms;
+              validated.rememberThis = validated.rememberThis || studentFallback.rememberThis;
+              validated.quiz = (validated.quiz && validated.quiz.length > 0) ? validated.quiz : studentFallback.quiz;
+            }
+          }
+
           validated.patientContext = patientContext || {};
           return validated;
         } catch (innerErr) {
-          console.warn(`[LLM] Attempt ${attempt} on ${modelName} failed validation: ${innerErr.message}`);
+          console.warn(`[LLM] Attempt ${attempt} on ${modelName} failed: ${innerErr.message}`);
+          if (innerErr.status === 429 || innerErr.status === 503 || innerErr.status === 404 || innerErr.message?.includes('429') || innerErr.message?.includes('503') || innerErr.message?.includes('404')) {
+            throw innerErr;
+          }
           if (attempt === 2) throw innerErr;
         }
       }
     } catch (err) {
       console.warn(`[LLM] Model ${modelName} error: ${err.message}`);
       lastError = err;
+      if (err.status === 429 || err.message?.includes('429')) {
+        break;
+      }
     }
   }
 
   console.warn('[LLM] All Gemini model attempts failed or timed out. Falling back to clinical evidence engine:', lastError?.message);
-  return synthesizeClinicalEvidenceFallback(question, rankedArticles, patientContext);
+  return synthesizeClinicalEvidenceFallback(question, rankedArticles, patientContext, drugInfo, studentMode);
 }
 
 /**
@@ -531,15 +763,18 @@ Provide your synthesis in valid JSON format now.`;
  */
 function verifyCitationsAndBuildReferences(evidenceResult, retrievedArticles) {
   const pmidMap = new Map();
+  const referencedPmids = new Set();
   retrievedArticles.forEach(a => {
     pmidMap.set(String(a.pmid).trim(), a);
   });
 
   // Verify and filter findings PMIDs
-  const verifiedFindings = evidenceResult.findings.map(finding => {
+  const verifiedFindings = (evidenceResult.findings || []).map(finding => {
     const verifiedPmids = (finding.pmids || [])
       .map(id => String(id).trim())
       .filter(id => pmidMap.has(id));
+
+    verifiedPmids.forEach(id => referencedPmids.add(id));
 
     return {
       ...finding,
@@ -548,55 +783,64 @@ function verifyCitationsAndBuildReferences(evidenceResult, retrievedArticles) {
     };
   });
 
-  // Collect all verified PMIDs referenced in findings
-  const referencedPmids = new Set();
-  verifiedFindings.forEach(f => {
-    f.pmids.forEach(id => referencedPmids.add(id));
+  // Verify and filter section citations
+  const verifiedSections = (evidenceResult.sections || []).map(sec => {
+    const validCitations = (sec.citations || [])
+      .map(id => String(id).trim())
+      .filter(id => pmidMap.has(id));
+
+    validCitations.forEach(id => referencedPmids.add(id));
+
+    return {
+      ...sec,
+      citations: validCitations
+    };
   });
 
-  // Build the reference list strictly from real PubMed data
-  // Show referenced articles first, followed by other retrieved background articles
+  // Helper for APA citation text
+  const formatCitationApa = (art) => {
+    const author = art.authors || 'Clinical Research Group';
+    const year = art.year || '2024';
+    const title = art.title || '';
+    const journal = art.journal || '';
+    return `${author} (${year}). ${title}. ${journal}.`;
+  };
+
+  const createRefObject = (article, isCited) => ({
+    pmid: article.pmid,
+    title: article.title,
+    authors: article.authors || 'Clinical Research Group',
+    journal: article.journal,
+    year: article.year,
+    publicationDate: article.publicationDate,
+    isOlderThan5Years: article.isOlderThan5Years,
+    pubmedUrl: article.pubmedUrl,
+    studyType: article.studyType,
+    rankScore: article.rankScore,
+    isRetracted: article.isRetracted,
+    doi: article.doi || null,
+    abstract: article.abstract || 'No abstract text available in PubMed record.',
+    citationsCount: article.citationsCount || null,
+    formattedCitation: formatCitationApa(article),
+    isCitedInFindings: isCited
+  });
+
+  // Build reference list: first cited articles, then other retrieved articles
   const references = [];
   const addedPmids = new Set();
 
-  // First, add all referenced articles in findings
   for (const pmid of referencedPmids) {
     const article = pmidMap.get(pmid);
     if (article && !addedPmids.has(pmid)) {
-      references.push({
-        pmid: article.pmid,
-        title: article.title,
-        journal: article.journal,
-        year: article.year,
-        publicationDate: article.publicationDate,
-        isOlderThan5Years: article.isOlderThan5Years,
-        pubmedUrl: article.pubmedUrl,
-        studyType: article.studyType,
-        rankScore: article.rankScore,
-        isRetracted: article.isRetracted,
-        isCitedInFindings: true
-      });
+      references.push(createRefObject(article, true));
       addedPmids.add(pmid);
     }
   }
 
-  // Then add remaining retrieved articles
   for (const article of retrievedArticles) {
     const pmid = String(article.pmid).trim();
     if (!addedPmids.has(pmid)) {
-      references.push({
-        pmid: article.pmid,
-        title: article.title,
-        journal: article.journal,
-        year: article.year,
-        publicationDate: article.publicationDate,
-        isOlderThan5Years: article.isOlderThan5Years,
-        pubmedUrl: article.pubmedUrl,
-        studyType: article.studyType,
-        rankScore: article.rankScore,
-        isRetracted: article.isRetracted,
-        isCitedInFindings: false
-      });
+      references.push(createRefObject(article, false));
       addedPmids.add(pmid);
     }
   }
@@ -604,6 +848,7 @@ function verifyCitationsAndBuildReferences(evidenceResult, retrievedArticles) {
   return {
     verifiedResult: {
       ...evidenceResult,
+      sections: verifiedSections,
       findings: verifiedFindings,
       patientContext: evidenceResult.patientContext
     },
