@@ -1,6 +1,6 @@
 {
   "name": "veridoc",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Veridoc — Clinical Evidence Assistant for Doctors",
   "scripts": {
     "start": "node server/src/index.js",
