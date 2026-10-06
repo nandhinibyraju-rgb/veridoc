@@ -1,9 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
 
-// In production (same origin), default to '' so EventSource uses relative /api paths
-const API_URL = import.meta.env.VITE_API_URL && import.meta.env.VITE_API_URL !== 'http://localhost:5000'
-  ? import.meta.env.VITE_API_URL
-  : (import.meta.env.PROD ? '' : 'http://localhost:5000');
+// Resolve API URL: check explicit env vars (VITE_API_URL or VITE_API_BASE_URL),
+// or connect to Render backend if running on Vercel/external domain, or relative for same-origin
+const configuredUrl = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL;
+
+function resolveApiBaseUrl() {
+  if (configuredUrl && configuredUrl !== 'http://localhost:5000') {
+    return configuredUrl;
+  }
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('vercel.app')) {
+    return 'https://veridoc-y2st.onrender.com';
+  }
+  return import.meta.env.PROD ? '' : 'http://localhost:5000';
+}
+
+const API_URL = resolveApiBaseUrl();
 
 export function useLiveStream() {
   const [isConnected, setIsConnected] = useState(false);

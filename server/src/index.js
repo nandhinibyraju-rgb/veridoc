@@ -25,9 +25,10 @@ app.use(
 );
 app.set('trust proxy', 1);
 
-// CORS configuration - allow Render production URL, localhost origins, and custom CLIENT_URL
+// CORS configuration - allow Render and Vercel production URLs, localhost origins, and custom CLIENT_URL
 const allowedOrigins = [
   'https://veridoc-y2st.onrender.com',
+  'https://veridoc-zeta.vercel.app',
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:3000',
@@ -42,7 +43,8 @@ app.use(
         !origin ||
         allowedOrigins.includes(origin) ||
         origin.startsWith('http://localhost:') ||
-        origin.endsWith('.onrender.com')
+        origin.endsWith('.onrender.com') ||
+        origin.endsWith('.vercel.app')
       ) {
         callback(null, true);
       } else {
