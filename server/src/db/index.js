@@ -187,20 +187,7 @@ function initDatabase() {
     }
     console.log('[DB] Seeded initial live updates and safety alerts');
   }
-
-  // Seed demo notifications if none exist for demo user
-  const countDemoNotifs = db.prepare('SELECT count(*) as count FROM notifications WHERE user_id = ?').get('usr_demo_veridoc');
-  if (countDemoNotifs.count === 0) {
-    const insertNotif = db.prepare(`
-      INSERT INTO notifications (id, user_id, type, title, message, link_url, is_read, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const now = new Date().toISOString();
-    insertNotif.run('notif_1', 'usr_demo_veridoc', 'safety_alert', 'FDA MedWatch Alert', 'Compounded GLP-1 dosing syringe calculation errors reported.', 'https://www.fda.gov/drugs/drug-safety-and-availability/fda-alerts-health-care-providers-compounders-and-patients-dosing-errors-associated-compounded-injectable', 0, now);
-    insertNotif.run('notif_2', 'usr_demo_veridoc', 'evidence_update', 'New Cardiology Meta-Analysis', 'SGLT2 inhibitors trial pooled analysis in The Lancet (PMID 38345521).', 'https://pubmed.ncbi.nlm.nih.gov/38345521/', 0, now);
-  }
-
-  // Seed demo user: demo@veridoc.com / Demo@1234
+// Seed demo user: demo@veridoc.com / Demo@1234
   const existingDemo = db.prepare('SELECT id FROM users WHERE email = ?').get('demo@veridoc.com');
   if (!existingDemo) {
     const demoId = 'usr_demo_veridoc';
@@ -213,6 +200,19 @@ function initDatabase() {
     console.log('[DB] Seeded demo user: demo@veridoc.com');
   }
 }
+  // Seed demo notifications if none exist for demo user
+  const countDemoNotifs = db.prepare('SELECT count(*) as count FROM notifications WHERE user_id = ?').get('usr_demo_veridoc');
+  if (countDemoNotifs.count === 0) {
+    const insertNotif = db.prepare(`
+      INSERT INTO notifications (id, user_id, type, title, message, link_url, is_read, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const now = new Date().toISOString();
+    insertNotif.run('notif_1', 'usr_demo_veridoc', 'safety_alert', 'FDA MedWatch Alert', 'Compounded GLP-1 dosing syringe calculation errors reported.', 'https://www.fda.gov/drugs/drug-safety-and-availability/fda-alerts-health-care-providers-compounders-and-patients-dosing-errors-associated-compounded-injectable', 0, now);
+    insertNotif.run('notif_2', 'usr_demo_veridoc', 'evidence_update', 'New Cardiology Meta-Analysis', 'SGLT2 inhibitors trial pooled analysis in The Lancet (PMID 38345521).', 'https://pubmed.ncbi.nlm.nih.gov/38345521/', 0, now);
+  }
+
+  
 
 initDatabase();
 
