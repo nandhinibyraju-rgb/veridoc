@@ -10,6 +10,7 @@ require('./db');
 const authRoutes = require('./routes/auth');
 const evidenceRoutes = require('./routes/evidence');
 const healthRoutes = require('./routes/health');
+const liveRoutes = require('./routes/live');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -42,6 +43,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/health', healthRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/evidence', evidenceRoutes);
+app.use('/api/live', liveRoutes);
 
 // 404 handler for unknown routes
 app.use((req, res) => {

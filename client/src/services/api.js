@@ -116,6 +116,26 @@ export const evidenceService = {
     const res = await api.post(`/evidence/followup/${id}`, { followupQuestion });
     return res.data;
   },
+  async getLiveUpdates(params = {}) {
+    const res = await api.get('/evidence/live-updates', { params });
+    return res.data;
+  },
+  async refreshLiveUpdates() {
+    const res = await api.post('/evidence/live-updates/refresh');
+    return res.data;
+  },
+  async simulateLiveUpdate(data = {}) {
+    const res = await api.post('/evidence/live-updates/simulate', data);
+    return res.data;
+  },
+  async getNotifications() {
+    const res = await api.get('/evidence/notifications');
+    return res.data;
+  },
+  async markNotificationRead(id, all = false) {
+    const res = await api.post('/evidence/notifications/mark-read', { id, all });
+    return res.data;
+  },
 };
 
 export default api;

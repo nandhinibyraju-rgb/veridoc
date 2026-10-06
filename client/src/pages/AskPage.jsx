@@ -20,6 +20,7 @@ import ReferencesPanel from '../components/ReferencesPanel';
 import DockedSearchBar from '../components/DockedSearchBar';
 import LoadingSteps from '../components/LoadingSteps';
 import ThreeDBackground from '../components/ThreeDBackground';
+import { ScrollReveal, SplitTextReveal } from '../components/ScrollReveal';
 
 export default function AskPage() {
   const [searchParams] = useSearchParams();
@@ -314,6 +315,115 @@ export default function AskPage() {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Scroll Section 1: 3 Key Pillars of Clinical Verification */}
+          <div className="w-full max-w-5xl mx-auto pt-16 pb-8 space-y-12">
+            <ScrollReveal className="text-center space-y-3">
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
+                <SplitTextReveal text={isStudent ? "Built for Deep Medical Understanding" : "Rigorous Clinical Synthesis Architecture"} />
+              </h2>
+              <p className="text-sm text-slate-500 max-w-2xl mx-auto leading-relaxed">
+                {isStudent
+                  ? "Every concept connects directly to peer-reviewed evidence, pharmacology models, and self-testing recall tools."
+                  : "Every finding is checked against real NCBI PubMed trials and FDA package inserts with exact citation verification."}
+              </p>
+            </ScrollReveal>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-left">
+              <ScrollReveal delay={0.1} className="p-6 rounded-2xl bg-white/80 backdrop-blur-sm border border-slate-200/80 shadow-xs hover:shadow-md transition-all hover:-translate-y-1 group">
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center mb-4 transition-colors ${
+                  isStudent ? 'bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white' : 'bg-teal-50 text-[#0F766E] group-hover:bg-[#0F766E] group-hover:text-white'
+                }`}>
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 mb-1.5">
+                  {isStudent ? "Verified Primary Literature" : "Real NCBI PubMed Retrieval"}
+                </h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  {isStudent
+                    ? "Study high-yield evidence from randomized clinical trials, guidelines, and systematic reviews."
+                    : "Live query execution across 36M+ PubMed records with automated relevance filtering and PMID verification."}
+                </p>
+              </ScrollReveal>
+
+              <ScrollReveal delay={0.2} className="p-6 rounded-2xl bg-white/80 backdrop-blur-sm border border-slate-200/80 shadow-xs hover:shadow-md transition-all hover:-translate-y-1 group">
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center mb-4 transition-colors ${
+                  isStudent ? 'bg-amber-50 text-amber-600 group-hover:bg-amber-600 group-hover:text-white' : 'bg-cyan-50 text-cyan-700 group-hover:bg-cyan-600 group-hover:text-white'
+                }`}>
+                  <Pill className="w-5 h-5" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 mb-1.5">
+                  {isStudent ? "Mechanism & Drug Labeling" : "Direct FDA Package Inserts"}
+                </h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  {isStudent
+                    ? "Grasp biological mechanisms, pharmacokinetics, and black box warnings without rote memorization."
+                    : "Real-time openFDA querying for indications, contraindications, and warnings. Never hallucinates dosages."}
+                </p>
+              </ScrollReveal>
+
+              <ScrollReveal delay={0.3} className="p-6 rounded-2xl bg-white/80 backdrop-blur-sm border border-slate-200/80 shadow-xs hover:shadow-md transition-all hover:-translate-y-1 group">
+                <div className={`w-11 h-11 rounded-xl flex items-center justify-center mb-4 transition-colors ${
+                  isStudent ? 'bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white' : 'bg-emerald-50 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white'
+                }`}>
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <h3 className="text-base font-bold text-slate-900 mb-1.5">
+                  {isStudent ? "Interactive Recall & Quiz" : "Graded Evidence Hierarchy"}
+                </h3>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  {isStudent
+                    ? "Reinforce memory with auto-generated multi-choice questions and instant flashcard summaries."
+                    : "Strict evidence hierarchy: Level A (meta-analyses) to Level D (expert consensus) with citation-matched claims."}
+                </p>
+              </ScrollReveal>
+            </div>
+
+            {/* Scroll Section 2: Clinical Specialties & Topic Explorer */}
+            <ScrollReveal delay={0.2} className="p-8 rounded-3xl bg-gradient-to-br from-white/90 to-slate-50/80 border border-slate-200/90 shadow-xs space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">
+                    <SplitTextReveal text={isStudent ? "Explore High-Yield Clinical Specialties" : "Supported Clinical Evidence Domains"} />
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {isStudent
+                      ? "Select any specialty to launch structured trial syntheses with student explainers."
+                      : "Multi-specialty ontology with specialized PubMed queries, guideline mapping, and dosing verification."}
+                  </p>
+                </div>
+                <span className={`text-xs font-semibold px-3 py-1 rounded-full ${
+                  isStudent ? 'bg-indigo-100 text-indigo-700' : 'bg-teal-100 text-[#0F766E]'
+                }`}>
+                  Live NCBI & FDA Linked
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {[
+                  { name: 'Cardiology', query: 'SGLT2 inhibitors in heart failure with preserved ejection fraction' },
+                  { name: 'Endocrinology', query: 'GLP-1 receptor agonists and renal outcomes in type 2 diabetes' },
+                  { name: 'Nephrology', query: 'Finerenone in chronic kidney disease and type 2 diabetes' },
+                  { name: 'Infectious Disease', query: 'Paxlovid rebound symptoms and viral clearance duration' },
+                  { name: 'Neurology', query: 'Monoclonal antibodies in early Alzheimer disease amyloid clearance' },
+                  { name: 'Critical Care', query: 'Balanced crystalloids versus normal saline in septic shock' },
+                ].map((spec, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleSearchSubmit(spec.query)}
+                    className="p-3.5 rounded-xl bg-white border border-slate-200/80 shadow-2xs hover:shadow-xs hover:border-slate-300 transition-all text-left group cursor-pointer"
+                  >
+                    <div className="text-xs font-bold text-slate-800 group-hover:text-[#0F766E] transition-colors">
+                      {spec.name}
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-1 line-clamp-1 group-hover:text-slate-600">
+                      Query evidence →
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </ScrollReveal>
           </div>
         </motion.div>
       </div>

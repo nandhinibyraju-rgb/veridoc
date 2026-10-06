@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, useScroll } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import { useLiveStream } from '../hooks/useLiveStream';
+import { evidenceService } from '../services/api';
 import {
   Activity,
   Search,
@@ -19,7 +21,9 @@ import {
   ExternalLink,
   PanelLeft,
   GraduationCap,
-  Stethoscope
+  Stethoscope,
+  Check,
+  CheckCheck
 } from 'lucide-react';
 
 export default function Navbar({ onToggleMobileMenu, onToggleHistoryDrawer, studentMode = false, onToggleStudentMode }) {
@@ -39,6 +43,15 @@ export default function Navbar({ onToggleMobileMenu, onToggleHistoryDrawer, stud
       }
     }
   };
+
+  const { scrollYProgress, scrollY } = useScroll();
+  const [isScrolled, setIsScrolled] = useState(false);
+
+  useEffect(() => {
+    return scrollY.on('change', (latest) => {
+      setIsScrolled(latest > 18);
+    });
+  }, [scrollY]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isAvatarOpen, setIsAvatarOpen] = useState(false);
@@ -84,36 +97,66 @@ export default function Navbar({ onToggleMobileMenu, onToggleHistoryDrawer, stud
   const userName = user?.name || 'Dr. Sarah Chen, MD';
   const userInitials = userName.replace(/^(Dr\.|MD)\s*/i, '').charAt(0) || 'D';
 
-  const notifications = [
-    {
-      id: 1,
-      title: '3 New Meta-Analyses Indexed',
-      desc: 'Cardiology & SGLT2i heart failure trials updated in PubMed',
-      time: '2h ago'
-    },
-    {
-      id: 2,
-      title: 'FDA Safety Alert Issued',
-      desc: 'GLP-1 receptor agonist perioperative fasting advisory',
-      time: '1d ago'
-    },
-    {
-      id: 3,
-      title: 'New Guideline Recommendation',
-      desc: 'ACC/AHA 2024 updated hypertension management pathways',
-      time: '3d ago'
+  const { unreadCount, setUnreadCount } = useLiveStream();
+  const [notificationsList, setNotificationsList] = useState([]);
+
+  const loadNotifications = async () => {
+    try {
+      const data = await evidenceService.getNotifications();
+      setNotificationsList(data.notifications || []);
+      if (typeof data.unreadCount === 'number') {
+        setUnreadCount(data.unreadCount);
+      }
+    } catch (e) {
+      // safe fallback
     }
-  ];
+  };
+
+  useEffect(() => {
+    loadNotifications();
+
+    const handleUpdate = () => {
+      loadNotifications();
+    };
+
+    window.addEventListener('veridoc-new-notification', handleUpdate);
+    window.addEventListener('veridoc-new-update', handleUpdate);
+    return () => {
+      window.removeEventListener('veridoc-new-notification', handleUpdate);
+      window.removeEventListener('veridoc-new-update', handleUpdate);
+    };
+  }, []);
+
+  const handleMarkRead = async (id, e) => {
+    if (e) e.stopPropagation();
+    try {
+      await evidenceService.markNotificationRead(id);
+      setNotificationsList(prev => prev.map(n => n.id === id ? { ...n, is_read: 1 } : n));
+      setUnreadCount(c => Math.max(0, c - 1));
+    } catch (e) {}
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await evidenceService.markNotificationRead(null, true);
+      setNotificationsList(prev => prev.map(n => ({ ...n, is_read: 1 })));
+      setUnreadCount(0);
+    } catch (e) {}
+  };
 
   return (
     <motion.header
       initial={{ y: -64, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
-      className={`sticky top-0 z-40 backdrop-blur-md border-b shadow-2xs transition-all duration-400 ${
+      className={`sticky top-0 z-40 transition-all duration-300 ${
+        isScrolled
+          ? 'shadow-md backdrop-blur-lg border-b'
+          : 'shadow-2xs backdrop-blur-md border-b'
+      } ${
         isStudent
-          ? 'bg-gradient-to-r from-indigo-50/95 via-white/95 to-amber-50/80 border-indigo-100'
-          : 'bg-gradient-to-r from-sky-50/95 via-white/95 to-sky-50/80 border-sky-100'
+          ? isScrolled ? 'bg-white/95 border-indigo-200/90' : 'bg-gradient-to-r from-indigo-50/95 via-white/95 to-amber-50/80 border-indigo-100'
+          : isScrolled ? 'bg-white/95 border-slate-200/90' : 'bg-gradient-to-r from-sky-50/95 via-white/95 to-sky-50/80 border-sky-100'
       }`}
     >
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
@@ -247,42 +290,89 @@ export default function Navbar({ onToggleMobileMenu, onToggleHistoryDrawer, stud
             {/* Notifications Bell */}
             <div className="relative" ref={notifRef}>
               <button
-                onClick={() => setIsNotifOpen((prev) => !prev)}
-                className="relative p-2 rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 transition-colors"
-                title="Evidence updates for your specialties"
+                onClick={() => {
+                  setIsNotifOpen((prev) => !prev);
+                  if (!isNotifOpen) loadNotifications();
+                }}
+                className="relative p-2 rounded-full text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 transition-colors cursor-pointer"
+                title="Evidence updates & alerts"
                 aria-label="Notifications"
               >
                 <Bell className="w-4.5 h-4.5" />
-                <span className={`absolute top-1 right-1 w-4 h-4 rounded-full text-white text-[9px] font-bold flex items-center justify-center border-2 border-white shadow-2xs transition-colors duration-300 ${
-                  isStudent ? 'bg-[#4F46E5]' : 'bg-[#0F766E]'
-                }`}>
-                  3
-                </span>
+                {unreadCount > 0 && (
+                  <span className={`absolute top-1 right-1 min-w-4 h-4 px-1 rounded-full text-white text-[9px] font-bold flex items-center justify-center border-2 border-white shadow-2xs transition-all animate-pulse ${
+                    isStudent ? 'bg-[#4F46E5]' : 'bg-red-500'
+                  }`}>
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
               </button>
 
               {/* Notifications Popover */}
               {isNotifOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-200/90 py-3 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="absolute right-0 mt-2 w-84 bg-white rounded-2xl shadow-xl border border-slate-200/90 py-3 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
                   <div className="px-4 pb-2 border-b border-slate-100 flex items-center justify-between">
                     <div>
-                      <h2 className="text-xs font-bold text-slate-800">Specialty Evidence Feed</h2>
-                      <p className="text-[10px] text-slate-500 font-medium">New meta-analyses & alerts</p>
+                      <h2 className="text-xs font-bold text-slate-800">Live Evidence Notifications</h2>
+                      <p className="text-[10px] text-slate-500 font-medium">Real-time PubMed & FDA alerts</p>
                     </div>
-                    <span className="text-[10px] font-semibold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
-                      3 new
-                    </span>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={handleMarkAllRead}
+                        className="text-[10px] font-semibold text-[#0F766E] hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <CheckCheck className="w-3 h-3" />
+                        <span>Mark all read</span>
+                      </button>
+                    )}
                   </div>
 
                   <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto">
-                    {notifications.map((n) => (
-                      <div key={n.id} className="p-3 hover:bg-slate-50 transition-colors cursor-pointer">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-xs font-semibold text-slate-800">{n.title}</h3>
-                          <span className="text-[10px] text-slate-600">{n.time}</span>
-                        </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">{n.desc}</p>
+                    {notificationsList.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-slate-400">
+                        No notifications yet. New trial alerts will appear here.
                       </div>
-                    ))}
+                    ) : (
+                      notificationsList.map((n) => (
+                        <div
+                          key={n.id}
+                          className={`p-3 transition-colors flex items-start justify-between gap-2 ${
+                            n.is_read ? 'hover:bg-slate-50/80' : 'bg-teal-50/30 hover:bg-teal-50/60'
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              {!n.is_read && (
+                                <span className="w-1.5 h-1.5 rounded-full bg-[#0F766E] shrink-0" />
+                              )}
+                              <h3 className="text-xs font-bold text-slate-800 truncate">{n.title}</h3>
+                            </div>
+                            <p className="text-[11px] text-slate-600 mt-0.5 line-clamp-2 leading-snug">{n.message}</p>
+                            {n.link_url && (
+                              <a
+                                href={n.link_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#0F766E] hover:underline mt-1"
+                              >
+                                <span>View source</span>
+                                <ExternalLink className="w-2.5 h-2.5" />
+                              </a>
+                            )}
+                          </div>
+
+                          {!n.is_read && (
+                            <button
+                              onClick={(e) => handleMarkRead(n.id, e)}
+                              title="Mark as read"
+                              className="p-1 rounded-md text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors shrink-0 cursor-pointer"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))
+                    )}
                   </div>
 
                   <div className="px-4 pt-2 border-t border-slate-100 text-center">
@@ -291,7 +381,7 @@ export default function Navbar({ onToggleMobileMenu, onToggleHistoryDrawer, stud
                       onClick={() => setIsNotifOpen(false)}
                       className="text-xs font-semibold text-[#0F766E] hover:underline"
                     >
-                      View all specialty updates →
+                      View all live evidence updates →
                     </Link>
                   </div>
                 </div>
@@ -366,6 +456,16 @@ export default function Navbar({ onToggleMobileMenu, onToggleHistoryDrawer, stud
           </div>
         </div>
       </div>
+
+      {/* Thin Scroll Reading Progress Bar */}
+      <motion.div
+        className={`absolute bottom-0 left-0 right-0 h-[2.5px] origin-left z-50 ${
+          isStudent
+            ? 'bg-gradient-to-r from-indigo-500 via-amber-400 to-indigo-600'
+            : 'bg-gradient-to-r from-[#0F766E] via-cyan-400 to-[#0F766E]'
+        }`}
+        style={{ scaleX: scrollYProgress }}
+      />
     </motion.header>
   );
 }

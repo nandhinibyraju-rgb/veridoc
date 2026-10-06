@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import Navbar from './Navbar';
 import LeftSidebar from './LeftSidebar';
 import RightSidebar from './RightSidebar';
 import Footer from './Footer';
 import HistoryDrawer from './HistoryDrawer';
+import ThreeDBackground from './ThreeDBackground';
 import { useAuth } from '../context/AuthContext';
 
 export default function AppLayout({ children, hideRightSidebar = false, workspaceMode = false }) {
@@ -11,10 +13,30 @@ export default function AppLayout({ children, hideRightSidebar = false, workspac
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
 
+  const { scrollYProgress } = useScroll();
+
+  const doctorBg = useTransform(
+    scrollYProgress,
+    [0, 0.5, 1],
+    ['#F8FAFC', '#F0FDFA', '#F8FAFC']
+  );
+
+  const studentBg = useTransform(
+    scrollYProgress,
+    [0, 0.5, 1],
+    ['#FAF5FF', '#FFFBEB', '#FAF5FF']
+  );
+
   return (
-    <div className={`min-h-screen flex flex-col antialiased transition-colors duration-400 ${
-      studentMode ? 'bg-[#FAF5FF]' : 'bg-[#F8FAFC]'
-    }`}>
+    <motion.div
+      style={{ backgroundColor: studentMode ? studentBg : doctorBg }}
+      className="min-h-screen flex flex-col antialiased relative"
+    >
+      {/* 3D WebGL Background Layer */}
+      <ThreeDBackground className="opacity-25 pointer-events-none fixed inset-0 z-0" />
+
+      {/* Foreground Content */}
+      <div className="relative z-10 flex flex-col min-h-screen">
       {/* Sticky Top Navbar */}
       <Navbar
         onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
@@ -61,6 +83,7 @@ export default function AppLayout({ children, hideRightSidebar = false, workspac
 
       {/* Teal Gradient Footer */}
       <Footer />
-    </div>
+      </div>
+    </motion.div>
   );
 }

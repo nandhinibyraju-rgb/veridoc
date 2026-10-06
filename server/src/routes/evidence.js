@@ -463,4 +463,119 @@ router.post('/followup/:id', askRateLimiter, async (req, res, next) => {
   }
 });
 
+const { publishUpdate, pollPubMedUpdates, sendToUser } = require('../services/liveStream');
+
+/**
+ * GET /api/evidence/live-updates
+ */
+router.get('/live-updates', (req, res, next) => {
+  try {
+    const { type, specialty, limit = 30 } = req.query;
+    let query = 'SELECT * FROM live_updates';
+    const params = [];
+    const conditions = [];
+
+    if (type && type !== 'all') {
+      conditions.push('type = ?');
+      params.push(type);
+    }
+    if (specialty && specialty !== 'all') {
+      conditions.push('specialty = ?');
+      params.push(specialty);
+    }
+    if (conditions.length > 0) {
+      query += ' WHERE ' + conditions.join(' AND ');
+    }
+
+    query += ' ORDER BY published_at DESC LIMIT ?';
+    params.push(parseInt(limit, 10));
+
+    const updates = db.prepare(query).all(...params);
+    res.json({ updates });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/evidence/live-updates/refresh
+ */
+router.post('/live-updates/refresh', async (req, res, next) => {
+  try {
+    const newCount = await pollPubMedUpdates();
+    res.json({ success: true, newCount, message: `Checked PubMed & FDA RSS. Retrieved ${newCount} updates.` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/evidence/live-updates/simulate (For testing live SSE updates & notifications!)
+ */
+router.post('/live-updates/simulate', (req, res, next) => {
+  try {
+    const { title, summary, source, type, specialty, severity, url, pmid } = req.body;
+    const testTitle = title || `New Trial: Clinical Outcomes with Novel Incretin Mimetics in Cardiometabolic Disease`;
+    const testSummary = summary || `Multi-center double-blind RCT demonstrates 24% reduction in major adverse cardiovascular events (MACE) and preserved eGFR slope.`;
+    const testUrl = url || `https://pubmed.ncbi.nlm.nih.gov/${Math.floor(38000000 + Math.random() * 900000)}/`;
+    const testPmid = pmid || String(Math.floor(38000000 + Math.random() * 900000));
+
+    const created = publishUpdate({
+      type: type || 'rct',
+      title: testTitle,
+      source: source || 'PubMed / NEJM',
+      summary: testSummary,
+      url: testUrl,
+      pmid: testPmid,
+      specialty: specialty || 'Cardiology',
+      severity: severity || 'info'
+    });
+
+    res.json({ success: true, update: created });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/evidence/notifications
+ */
+router.get('/notifications', (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const notifications = db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 30').all(userId);
+    const unread = db.prepare('SELECT count(*) as count FROM notifications WHERE user_id = ? AND is_read = 0').get(userId);
+
+    res.json({
+      notifications,
+      unreadCount: unread.count
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/evidence/notifications/mark-read
+ */
+router.post('/notifications/mark-read', (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { id, all } = req.body;
+
+    if (all) {
+      db.prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ?').run(userId);
+    } else if (id) {
+      db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?').run(id, userId);
+    }
+
+    const unread = db.prepare('SELECT count(*) as count FROM notifications WHERE user_id = ? AND is_read = 0').get(userId);
+    sendToUser(userId, 'unread_count', { count: unread.count });
+
+    res.json({ success: true, unreadCount: unread.count });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
