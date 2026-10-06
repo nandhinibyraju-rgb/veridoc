@@ -106,11 +106,16 @@ export default function Navbar({ onToggleMobileMenu, onToggleHistoryDrawer, stud
   ];
 
   return (
-    <header className={`sticky top-0 z-40 backdrop-blur-md border-b shadow-2xs transition-all duration-400 ${
-      isStudent
-        ? 'bg-gradient-to-r from-indigo-50/95 via-white/95 to-amber-50/80 border-indigo-100'
-        : 'bg-gradient-to-r from-sky-50/95 via-white/95 to-sky-50/80 border-sky-100'
-    }`}>
+    <motion.header
+      initial={{ y: -64, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ duration: 0.35, ease: 'easeOut' }}
+      className={`sticky top-0 z-40 backdrop-blur-md border-b shadow-2xs transition-all duration-400 ${
+        isStudent
+          ? 'bg-gradient-to-r from-indigo-50/95 via-white/95 to-amber-50/80 border-indigo-100'
+          : 'bg-gradient-to-r from-sky-50/95 via-white/95 to-sky-50/80 border-sky-100'
+      }`}
+    >
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-2 sm:gap-3">
           {/* Left: History Drawer Toggle & Logo */}
@@ -361,6 +366,6 @@ export default function Navbar({ onToggleMobileMenu, onToggleHistoryDrawer, stud
           </div>
         </div>
       </div>
-    </header>
+    </motion.header>
   );
 }

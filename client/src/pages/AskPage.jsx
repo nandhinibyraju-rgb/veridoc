@@ -19,6 +19,7 @@ import AnswerColumn from '../components/AnswerColumn';
 import ReferencesPanel from '../components/ReferencesPanel';
 import DockedSearchBar from '../components/DockedSearchBar';
 import LoadingSteps from '../components/LoadingSteps';
+import ThreeDBackground from '../components/ThreeDBackground';
 
 export default function AskPage() {
   const [searchParams] = useSearchParams();
@@ -228,17 +229,21 @@ export default function AskPage() {
       ];
 
   return (
-    <div className="flex-1 flex flex-col min-h-[calc(100vh-8rem)]">
+    <div className="flex-1 flex flex-col min-h-[calc(100vh-8rem)] relative">
       {/* View 1: Clean Home State (before any search is submitted) */}
       {!hasResults && !loading && (
-        <motion.div
-          key={isStudent ? 'student-home' : 'doctor-home'}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -8 }}
-          transition={{ duration: 0.4 }}
-          className="flex-1 flex flex-col items-center justify-center max-w-4xl mx-auto px-4 py-8 sm:py-16 text-center space-y-8"
-        >
+        <div className="relative flex-1 flex flex-col items-center justify-center">
+          {/* Interactive 3D WebGL Background Canvas */}
+          <ThreeDBackground className="opacity-75" />
+
+          <motion.div
+            key={isStudent ? 'student-home' : 'doctor-home'}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.4, ease: 'easeOut' }}
+            className="relative z-10 flex-1 flex flex-col items-center justify-center max-w-4xl mx-auto px-4 py-8 sm:py-16 text-center space-y-8"
+          >
           <div className="space-y-3">
             <div
               className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold transition-colors duration-400 ${
@@ -311,6 +316,7 @@ export default function AskPage() {
             </div>
           </div>
         </motion.div>
+      </div>
       )}
 
       {/* Loading Steps State */}

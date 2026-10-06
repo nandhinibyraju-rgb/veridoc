@@ -13,6 +13,7 @@ import ProfilePage from './pages/ProfilePage';
 import SettingsPage from './pages/SettingsPage';
 import PrivacyPage from './pages/PrivacyPage';
 import TermsPage from './pages/TermsPage';
+import OpeningSplash from './components/OpeningSplash';
 
 function ProtectedRoute({ children, hideRightSidebar = false, workspaceMode = false }) {
   const { user, loading } = useAuth();
@@ -54,6 +55,7 @@ function PublicRoute({ children }) {
 export default function App() {
   return (
     <AuthProvider>
+      <OpeningSplash />
       <BrowserRouter>
         <Routes>
           <Route

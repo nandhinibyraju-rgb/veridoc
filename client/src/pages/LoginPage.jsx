@@ -1,18 +1,20 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
-import { Activity, Lock, Mail, AlertCircle, ArrowRight, Stethoscope } from 'lucide-react';
+import { Activity, Lock, Mail, AlertCircle, ArrowRight, Stethoscope, Sparkles } from 'lucide-react';
+import ThreeDBackground from '../components/ThreeDBackground';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('demo@veridoc.com');
+  const [password, setPassword] = useState('Demo@1234');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     setError('');
     setLoading(true);
 
@@ -26,15 +28,33 @@ export default function LoginPage() {
     }
   };
 
-  const fillDemo = () => {
+  const handleOneClickDemo = async () => {
     setEmail('demo@veridoc.com');
     setPassword('Demo@1234');
     setError('');
+    setLoading(true);
+
+    try {
+      await login('demo@veridoc.com', 'Demo@1234');
+      navigate('/');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Demo login failed.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+    <div className="min-h-screen bg-[#F8FAFC] flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden">
+      {/* 3D Background Canvas */}
+      <ThreeDBackground className="opacity-40" />
+
+      <motion.div
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="sm:mx-auto sm:w-full sm:max-w-md text-center relative z-10"
+      >
         <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-teal-50 border border-teal-200 text-[#0F766E] shadow-xs mb-4">
           <Activity className="w-8 h-8 stroke-[2.2]" />
         </div>
@@ -44,10 +64,15 @@ export default function LoginPage() {
         <p className="mt-1.5 text-sm text-[#475569] font-medium">
           The latest clinical evidence, graded and verified, in seconds.
         </p>
-      </div>
+      </motion.div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4 sm:px-0">
-        <div className="bg-white py-8 px-6 sm:px-10 shadow-sm border border-slate-200 rounded-2xl">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.45, delay: 0.1 }}
+        className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4 sm:px-0 relative z-10"
+      >
+        <div className="bg-white/95 backdrop-blur-md py-8 px-6 sm:px-10 shadow-lg border border-slate-200/90 rounded-2xl">
           {error && (
             <div className="mb-6 p-3.5 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3 text-red-700 text-xs sm:text-sm">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
@@ -104,15 +129,16 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Quick Demo Fill Button */}
+          {/* One-Click Quick Demo Sign In */}
           <div className="mt-6 pt-5 border-t border-slate-100">
             <button
               type="button"
-              onClick={fillDemo}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-semibold text-[#0F766E] bg-teal-50 hover:bg-teal-100/80 border border-teal-200 transition cursor-pointer"
+              onClick={handleOneClickDemo}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-[#0F766E] via-teal-700 to-cyan-600 hover:opacity-95 shadow-md shadow-teal-700/10 transition-all cursor-pointer active:scale-95"
             >
-              <Stethoscope className="w-4 h-4 text-[#0F766E]" />
-              <span>Click to Autofill Demo Doctor (demo@veridoc.com)</span>
+              <Sparkles className="w-4 h-4 text-cyan-200" />
+              <span>Sign In as Dr. Sarah Chen (1-Click Demo)</span>
             </button>
           </div>
 
@@ -123,7 +149,7 @@ export default function LoginPage() {
             </Link>
           </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
