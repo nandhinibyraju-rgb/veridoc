@@ -1,166 +1,74 @@
-import React from 'react';
+import { useState, useEffect, createContext, useContext } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import AppLayout from './components/AppLayout';
-import LoginPage from './pages/LoginPage';
-import RegisterPage from './pages/RegisterPage';
-import ForgotPasswordPage from './pages/ForgotPasswordPage';
-import AskPage from './pages/AskPage';
-import HistoryPage from './pages/HistoryPage';
-import ResultDetailPage from './pages/ResultDetailPage';
-import LibraryPage from './pages/LibraryPage';
-import UpdatesPage from './pages/UpdatesPage';
-import ProfilePage from './pages/ProfilePage';
-import SettingsPage from './pages/SettingsPage';
-import PrivacyPage from './pages/PrivacyPage';
-import TermsPage from './pages/TermsPage';
-import OpeningSplash from './components/OpeningSplash';
+import { getMe } from './services/api.js';
+import LandingPage from './pages/LandingPage.jsx';
+import LoginPage from './pages/LoginPage.jsx';
+import RegisterPage from './pages/RegisterPage.jsx';
+import DashboardPage from './pages/DashboardPage.jsx';
+import MigrationPage from './pages/MigrationPage.jsx';
+import HistoryPage from './pages/HistoryPage.jsx';
+import Navbar from './components/Navbar.jsx';
 
-function ProtectedRoute({ children, hideRightSidebar = false, workspaceMode = false }) {
-  const { user, loading } = useAuth();
+// Auth context
+export const AuthContext = createContext(null);
+export const useAuth = () => useContext(AuthContext);
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = localStorage.getItem('verynth_token');
+    if (token) {
+      getMe()
+        .then(res => setUser(res.data.user))
+        .catch(() => {
+          localStorage.removeItem('verynth_token');
+          setUser(null);
+        })
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
+  }, []);
+
+  const signIn = (userData, token) => {
+    localStorage.setItem('verynth_token', token);
+    setUser(userData);
+  };
+
+  const signOut = () => {
+    localStorage.removeItem('verynth_token');
+    setUser(null);
+  };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center">
-        <div className="w-10 h-10 border-3 border-teal-200 border-t-[#0F766E] rounded-full animate-spin mb-4" />
-        <p className="text-sm font-semibold text-slate-600">Verifying clinician credentials...</p>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        minHeight: '100vh', background: '#0a0a0f'
+      }}>
+        <div className="spinner spinner-lg" />
       </div>
     );
   }
 
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
   return (
-    <AppLayout hideRightSidebar={hideRightSidebar} workspaceMode={workspaceMode}>
-      {children}
-    </AppLayout>
-  );
-}
-
-function PublicRoute({ children }) {
-  const { user, loading } = useAuth();
-
-  if (loading) {
-    return null;
-  }
-
-  if (user) {
-    return <Navigate to="/" replace />;
-  }
-
-  return children;
-}
-
-export default function App() {
-  return (
-    <AuthProvider>
-      <OpeningSplash />
+    <AuthContext.Provider value={{ user, signIn, signOut, loading }}>
       <BrowserRouter>
+        {user && <Navbar />}
         <Routes>
-          <Route
-            path="/login"
-            element={
-              <PublicRoute>
-                <LoginPage />
-              </PublicRoute>
-            }
-          />
-          <Route
-            path="/register"
-            element={
-              <PublicRoute>
-                <RegisterPage />
-              </PublicRoute>
-            }
-          />
-          <Route
-            path="/forgot-password"
-            element={
-              <PublicRoute>
-                <ForgotPasswordPage />
-              </PublicRoute>
-            }
-          />
-
-          <Route
-            path="/"
-            element={
-              <ProtectedRoute workspaceMode={true}>
-                <AskPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/history"
-            element={
-              <ProtectedRoute>
-                <HistoryPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/history/:id"
-            element={
-              <ProtectedRoute hideRightSidebar={true}>
-                <ResultDetailPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/library"
-            element={
-              <ProtectedRoute>
-                <LibraryPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/updates"
-            element={
-              <ProtectedRoute>
-                <UpdatesPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/profile"
-            element={
-              <ProtectedRoute>
-                <ProfilePage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <ProtectedRoute>
-                <SettingsPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/privacy"
-            element={
-              <ProtectedRoute>
-                <PrivacyPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/terms"
-            element={
-              <ProtectedRoute>
-                <TermsPage />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* Catch-all */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/" element={user ? <Navigate to="/dashboard" /> : <LandingPage />} />
+          <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <LoginPage />} />
+          <Route path="/register" element={user ? <Navigate to="/dashboard" /> : <RegisterPage />} />
+          <Route path="/dashboard" element={user ? <DashboardPage /> : <Navigate to="/login" />} />
+          <Route path="/migration/:id" element={user ? <MigrationPage /> : <Navigate to="/login" />} />
+          <Route path="/history" element={user ? <HistoryPage /> : <Navigate to="/login" />} />
+          <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </BrowserRouter>
-    </AuthProvider>
+    </AuthContext.Provider>
   );
 }
+
+export default App;

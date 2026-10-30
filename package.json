@@ -1,21 +1,22 @@
 {
-  "name": "veridoc",
-  "version": "1.0.1",
-  "description": "Veridoc — Clinical Evidence Assistant for Doctors",
+  "name": "verynth",
+  "version": "1.0.0",
+  "description": "VERYNTH — AI-Powered Code Migration Engine using Qwen2.5-Coder-7B-Instruct",
   "scripts": {
     "start": "node server/src/index.js",
     "server": "npm run dev --prefix server",
     "client": "npm run dev --prefix client",
     "build": "npm --prefix client install && npm --prefix client run build && npm --prefix server install",
-    "postinstall": "npm --prefix client install && npm --prefix client run build && npm --prefix server install",
     "test:server": "node server/test-api.js"
   },
   "keywords": [
-    "clinical-evidence",
-    "pubmed",
-    "grade",
-    "evidence-based-medicine"
+    "code-migration",
+    "ai",
+    "pandas",
+    "deprecated-api",
+    "ollama",
+    "qwen"
   ],
-  "author": "Veridoc Health",
-  "license": "ISC"
+  "author": "VERYNTH Team",
+  "license": "MIT"
 }

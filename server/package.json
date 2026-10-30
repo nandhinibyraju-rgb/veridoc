@@ -1,21 +1,17 @@
 {
-  "name": "server",
-  "version": "1.0.1",
-  "description": "",
+  "name": "verynth-server",
+  "version": "1.0.0",
+  "description": "VERYNTH — AI-Powered Code Migration Engine",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
-    "build": "npm --prefix ../client install && npm --prefix ../client run build",
-    "postinstall": "npm --prefix ../client install && npm --prefix ../client run build"
+    "dev": "nodemon src/index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["code-migration", "ai", "pandas", "ollama", "qwen"],
+  "author": "VERYNTH Team",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
-    "@google/genai": "^2.27.0",
-    "@google/generative-ai": "^0.24.1",
     "axios": "^1.20.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
@@ -23,7 +19,6 @@
     "dotenv": "^18.0.5",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.1",
-    "fast-xml-parser": "^5.11.2",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "zod": "^4.6.5"

@@ -1,22 +1,21 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.resolve(__dirname, '../../server/.env') });
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const path = require('path');
 const fs = require('fs');
 
-// Initialize database & demo seeds
+// Initialize database
 require('./db');
 
 const authRoutes = require('./routes/auth');
-const evidenceRoutes = require('./routes/evidence');
+const migrationRoutes = require('./routes/migrations');
 const healthRoutes = require('./routes/health');
-const liveRoutes = require('./routes/live');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 
-// Security middleware - disable CSP to allow Google Fonts and client assets in production
+// Security middleware
 app.use(
   helmet({
     contentSecurityPolicy: false,
@@ -25,10 +24,8 @@ app.use(
 );
 app.set('trust proxy', 1);
 
-// CORS configuration - allow Render and Vercel production URLs, localhost origins, and custom CLIENT_URL
+// CORS configuration
 const allowedOrigins = [
-  'https://veridoc-y2st.onrender.com',
-  'https://veridoc-zeta.vercel.app',
   'http://localhost:5173',
   'http://localhost:5174',
   'http://localhost:3000',
@@ -38,13 +35,10 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like same-origin browser requests, mobile apps, curl) or matching allowed origins
       if (
         !origin ||
         allowedOrigins.includes(origin) ||
-        origin.startsWith('http://localhost:') ||
-        origin.endsWith('.onrender.com') ||
-        origin.endsWith('.vercel.app')
+        origin.startsWith('http://localhost:')
       ) {
         callback(null, true);
       } else {
@@ -58,16 +52,15 @@ app.use(
 );
 
 // Body parsers
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// 1. Mount API Routes first (never intercepted by frontend fallback)
+// API Routes
 app.use('/api/health', healthRoutes);
 app.use('/api/auth', authRoutes);
-app.use('/api/evidence', evidenceRoutes);
-app.use('/api/live', liveRoutes);
+app.use('/api', migrationRoutes);
 
-// 2. Locate frontend production build directory
+// Serve frontend production build
 const candidateDistPaths = [
   path.resolve(__dirname, '../../client/dist'),
   path.resolve(process.cwd(), 'client/dist'),
@@ -83,10 +76,9 @@ for (const candidate of candidateDistPaths) {
 }
 
 if (clientDistPath) {
-  console.log(`[Static] Serving production frontend from: ${clientDistPath}`);
+  console.log(`[Static] Serving frontend from: ${clientDistPath}`);
   app.use(express.static(clientDistPath));
 
-  // SPA fallback for all non-API GET requests (returns index.html for client-side routing)
   app.use((req, res, next) => {
     if (req.method === 'GET' && !req.path.startsWith('/api')) {
       return res.sendFile(path.join(clientDistPath, 'index.html'));
@@ -94,29 +86,28 @@ if (clientDistPath) {
     next();
   });
 } else {
-  console.warn('[Static] Frontend build directory (client/dist) not found. Checked:', candidateDistPaths);
+  console.warn('[Static] Frontend build not found. Run `npm run build` in client/');
 }
 
-// 3. 404 handler for unknown API routes or unresolved assets
+// 404
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
 });
 
-// 4. Centralized error handler
+// Error handler
 app.use(errorHandler);
 
-// Listen on process.env.PORT || 10000 (standard Render port)
-const PORT = parseInt(process.env.PORT || '10000', 10);
+// Start server
+const PORT = parseInt(process.env.PORT || '5000', 10);
 const HOST = '0.0.0.0';
-const server = app.listen(PORT, HOST, () => {
+app.listen(PORT, HOST, () => {
   console.log(`=========================================`);
-  console.log(`🩺 Veridoc Clinical Evidence Server`);
+  console.log(`⚡ VERYNTH Migration Engine`);
   console.log(`🚀 Running on http://localhost:${PORT}`);
-  console.log(`🌐 Production Frontend: ${clientDistPath ? 'Mounted & Active' : 'Not Found'}`);
-  console.log(`📡 CORS Allowed Origins: ${allowedOrigins.join(', ')}`);
-  console.log(`🔑 NCBI API Key: ${process.env.NCBI_API_KEY ? 'Configured' : 'None (Public Mode)'}`);
-  console.log(`🤖 Gemini API Key: ${process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'PASTE_KEY_HERE' ? 'Configured' : 'Using Clinical Synthesis Fallback'}`);
+  console.log(`🌐 Frontend: ${clientDistPath ? 'Mounted' : 'Not Built'}`);
+  console.log(`🤖 AI Model: Qwen2.5-Coder-7B-Instruct via Ollama`);
+  console.log(`📦 Demo Project: ${path.resolve(__dirname, '../../demo-project')}`);
   console.log(`=========================================`);
 });
 
-module.exports = { app, server };
+module.exports = app;

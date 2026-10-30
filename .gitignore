@@ -1,28 +1,14 @@
-# Dependencies
 node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Environment files
+dist/
+client/dist/
 .env
-.env.local
-.env.*.local
-*.env
-
-# SQLite databases
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
-
-# Build output
-dist/
-!client/dist/
-build/
-
-# IDE & OS
-.vscode/
-.idea/
+server/data/
+.verynth_test_tmp/
+__pycache__/
+*.pyc
 .DS_Store
 Thumbs.db

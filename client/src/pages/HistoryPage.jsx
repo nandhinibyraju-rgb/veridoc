@@ -1,244 +1,107 @@
-import React, { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { evidenceService } from '../services/api';
-import {
-  History as HistoryIcon,
-  Search,
-  Trash2,
-  ExternalLink,
-  RotateCw,
-  Clock,
-  FileText,
-  AlertCircle,
-  ShieldCheck,
-  ChevronRight,
-  ArrowRight
-} from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { getHistory } from '../services/api.js';
+
+const ACTION_LABELS = {
+  project_imported: { label: '📦 Project Imported', color: 'var(--titanium-400)' },
+  migration_generated: { label: '🤖 Migration Generated', color: 'var(--teal-400)' },
+  tests_executed: { label: '🧪 Tests Executed', color: 'var(--info)' },
+  migration_approved: { label: '✅ Migration Approved', color: 'var(--success)' },
+  migration_rejected: { label: '✗ Migration Rejected', color: 'var(--error)' },
+};
 
 export default function HistoryPage() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [recheckingId, setRecheckingId] = useState(null);
-  const [deletingId, setDeletingId] = useState(null);
   const navigate = useNavigate();
 
-  const loadHistory = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await evidenceService.getHistory();
-      setHistory(data.history || []);
-    } catch (err) {
-      console.error('Failed to load history:', err);
-      setError('Unable to load clinical inquiry history. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    loadHistory();
+    getHistory()
+      .then(res => setHistory(res.data.history))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  const handleDelete = async (e, id) => {
-    e.stopPropagation();
-    if (!window.confirm('Are you sure you want to delete this clinical audit inquiry?')) return;
-
-    setDeletingId(id);
-    try {
-      await evidenceService.deleteHistoryItem(id);
-      setHistory(prev => prev.filter(item => item.id !== id));
-    } catch (err) {
-      alert('Failed to delete query record.');
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  const handleRecheck = async (e, id) => {
-    e.stopPropagation();
-    setRecheckingId(id);
-    try {
-      const updated = await evidenceService.recheck(id);
-      // Update history list item
-      setHistory(prev => prev.map(item => item.id === id ? {
-        ...item,
-        searchedAt: updated.searchedAt,
-        bottomLine: updated.result.bottomLine,
-        findingsCount: updated.result.findings?.length || 0
-      } : item));
-      alert('PubMed re-check complete! Fresh evidence retrieved and verified.');
-    } catch (err) {
-      alert(err.response?.data?.error || 'Re-check failed. Please check network connectivity.');
-    } finally {
-      setRecheckingId(null);
-    }
-  };
-
-  const filteredHistory = history.filter(item =>
-    item.question.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.bottomLine?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  if (loading) {
+    return (
+      <div className="flex-center" style={{ minHeight: 'calc(100vh - 60px)' }}>
+        <div className="spinner spinner-lg" />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#0F766E] mb-1">
-            <HistoryIcon className="w-4 h-4" />
-            <span>Audit Trail &amp; Past Inquiries</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-[#0F172A] tracking-tight">
-            Clinical Inquiry History
-          </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Review past evidence syntheses, track clinical questions over time, and re-check for new trials.
-          </p>
-        </div>
+    <div style={{ minHeight: 'calc(100vh - 60px)', padding: 'var(--space-8) var(--space-6)' }}>
+      <div className="container">
+        <h1 style={{ fontSize: '1.5rem', fontWeight: 800, marginBottom: 'var(--space-6)' }}>
+          <span className="gradient-text">Migration History</span>
+        </h1>
 
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-[#0F766E] text-white rounded-xl text-sm font-semibold hover:bg-[#0d655e] transition shadow-xs"
-        >
-          <span>Ask New Question</span>
-          <ArrowRight className="w-4 h-4" />
-        </Link>
-      </div>
-
-      {/* Search Filter Bar */}
-      <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs">
-        <div className="relative">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search past questions or key clinical outcomes..."
-            className="w-full pl-10 pr-4 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F766E] bg-slate-50/50 focus:bg-white"
-          />
-        </div>
-      </div>
-
-      {/* Error state */}
-      {error && (
-        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {/* Loading state */}
-      {loading && (
-        <div className="text-center py-16 bg-white rounded-2xl border border-slate-200">
-          <div className="w-8 h-8 border-3 border-teal-200 border-t-[#0F766E] rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-sm text-slate-500">Loading clinical inquiry records...</p>
-        </div>
-      )}
-
-      {/* Empty State */}
-      {!loading && filteredHistory.length === 0 && (
-        <div className="text-center py-16 bg-white rounded-2xl border border-slate-200 p-8 space-y-4">
-          <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200 text-[#0F766E] flex items-center justify-center mx-auto">
-            <HistoryIcon className="w-6 h-6" />
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-[#0F172A]">No Clinical Queries Found</h3>
-            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-              {searchTerm ? 'No past queries matched your search term.' : 'You haven’t asked any clinical questions yet. Start by asking an evidence inquiry on the Ask page.'}
+        {history.length === 0 ? (
+          <div className="card" style={{ textAlign: 'center', padding: 'var(--space-12)' }}>
+            <p style={{ color: 'var(--obsidian-100)', marginBottom: 'var(--space-4)' }}>
+              No migration history yet
             </p>
+            <button className="btn btn-primary" onClick={() => navigate('/dashboard')}>
+              Start a Migration →
+            </button>
           </div>
-          <Link
-            to="/"
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-teal-50 border border-teal-200 text-[#0F766E] rounded-xl text-xs font-semibold hover:bg-teal-100 transition"
-          >
-            <span>Ask Your First Question</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
-      )}
+        ) : (
+          <div style={{ position: 'relative', paddingLeft: 'var(--space-8)' }}>
+            {/* Timeline line */}
+            <div style={{
+              position: 'absolute', left: 10, top: 0, bottom: 0, width: 2,
+              background: 'linear-gradient(180deg, var(--teal-500), var(--titanium-500), var(--obsidian-500))',
+            }} />
 
-      {/* History List */}
-      {!loading && filteredHistory.length > 0 && (
-        <div className="space-y-4">
-          {filteredHistory.map((item) => (
-            <div
-              key={item.id}
-              onClick={() => navigate(`/?id=${item.id}`)}
-              className="bg-white rounded-2xl border border-slate-200/90 p-5 sm:p-6 shadow-xs hover:border-teal-300 hover:shadow-sm transition cursor-pointer group"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                <div className="space-y-2 flex-1">
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                    <span className="flex items-center gap-1 font-medium text-slate-500">
-                      <Clock className="w-3.5 h-3.5" />
-                      {new Date(item.searchedAt).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                      })}
-                    </span>
-                    <span>•</span>
-                    <span className="px-2 py-0.5 rounded-md bg-teal-50 text-[#0F766E] font-semibold text-[11px] border border-teal-200/60">
-                      {item.findingsCount} Graded Findings
-                    </span>
+            {history.map((item, i) => {
+              const actionInfo = ACTION_LABELS[item.action] || { label: item.action, color: 'var(--obsidian-100)' };
+              return (
+                <div key={item.id} className="animate-fade-in" style={{
+                  position: 'relative', marginBottom: 'var(--space-5)',
+                  animationDelay: `${i * 0.05}s`,
+                }}>
+                  {/* Timeline dot */}
+                  <div style={{
+                    position: 'absolute', left: -26, top: 6,
+                    width: 12, height: 12, borderRadius: '50%',
+                    background: actionInfo.color,
+                    border: '2px solid var(--obsidian-700)',
+                    boxShadow: `0 0 8px ${actionInfo.color}40`,
+                  }} />
+
+                  <div className="card" style={{ padding: 'var(--space-4) var(--space-5)' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+                      <div>
+                        <div style={{ fontSize: '0.9rem', fontWeight: 600, color: actionInfo.color, marginBottom: 'var(--space-1)' }}>
+                          {actionInfo.label}
+                        </div>
+                        {item.project_name && (
+                          <div style={{ fontSize: '0.82rem', color: 'var(--obsidian-100)' }}>
+                            Project: {item.project_name}
+                            {item.source_version && ` · ${item.source_version} → ${item.target_version}`}
+                          </div>
+                        )}
+                        {item.details && (
+                          <div style={{ fontSize: '0.78rem', color: 'var(--obsidian-200)', marginTop: 'var(--space-1)', fontFamily: 'var(--font-mono)' }}>
+                            {typeof item.details === 'string'
+                              ? item.details
+                              : JSON.stringify(item.details, null, 2)
+                            }
+                          </div>
+                        )}
+                      </div>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--obsidian-200)', whiteSpace: 'nowrap' }}>
+                        {new Date(item.created_at).toLocaleString()}
+                      </span>
+                    </div>
                   </div>
-
-                  <h3 className="text-base font-bold text-[#0F172A] group-hover:text-[#0F766E] transition">
-                    {item.question}
-                  </h3>
-
-                  {item.bottomLine && (
-                    <p className="text-xs sm:text-sm text-slate-600 line-clamp-2 leading-relaxed">
-                      {item.bottomLine}
-                    </p>
-                  )}
                 </div>
-
-                {/* Action buttons */}
-                <div className="flex items-center gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                  {/* Re-check button (Phase 3 Stretch) */}
-                  <button
-                    type="button"
-                    onClick={(e) => handleRecheck(e, item.id)}
-                    disabled={recheckingId === item.id}
-                    title="Re-query PubMed live for newly published evidence"
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-teal-50 hover:text-[#0F766E] hover:border-teal-200 border border-slate-200 rounded-lg transition disabled:opacity-50"
-                  >
-                    <RotateCw className={`w-3.5 h-3.5 ${recheckingId === item.id ? 'animate-spin text-[#0F766E]' : ''}`} />
-                    <span className="hidden md:inline">Re-check</span>
-                  </button>
-
-                  {/* Open details */}
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/?id=${item.id}`)}
-                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-[#0F766E] bg-teal-50 hover:bg-teal-100 rounded-lg border border-teal-200 transition"
-                  >
-                    <span>View Result</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-
-                  {/* Delete button */}
-                  <button
-                    type="button"
-                    onClick={(e) => handleDelete(e, item.id)}
-                    disabled={deletingId === item.id}
-                    title="Delete query record"
-                    className="p-1.5 text-slate-400 hover:text-red-700 hover:bg-red-50 rounded-lg transition"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
